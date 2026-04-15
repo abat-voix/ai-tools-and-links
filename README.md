@@ -69,6 +69,8 @@
 Если возникают сложности с оплатой зарубежных AI-сервисов, можно рассмотреть сторонние площадки-посредники:
 
 - [Plati.market](https://plati.market/) - маркетплейс цифровых товаров и услуг, где иногда можно найти варианты оплаты или доступа к зарубежным AI-сервисам. Важно внимательно проверять продавца, условия и актуальность предложения
+- [Claude AI Pro / Max / Code (Anthropic)](https://plati.market/itm/bystro-garantija-podpiska-claude-ai-pro-max-code-anthropic-4-6/4023986) - пример проверенного варианта для доступа к продуктам Claude / Anthropic
+- [ChatGPT Plus / Pro / Go / Codex](https://plati.market/itm/chatgpt-5-4-plus-pro-go-codex-1-m-podpiska-aktivacija-prodlenie-chat-gpt/4339002) - пример проверенного варианта для доступа к продуктам OpenAI
 
 ## Что проверить после установки
 
@@ -99,6 +101,8 @@ docker --version
 - [Yandex Cloud Foundation Models](https://yandex.cloud/ru/services/foundation-models) - API-доступ к YandexGPT и related AI-сервисам
 - [GigaChat API](https://developers.sber.ru/portal/products/gigachat) - российский API-сервис для работы с LLM от Сбера
 - [Plati.market](https://plati.market/) - сторонняя площадка, где можно поискать варианты оплаты или доступа к зарубежным AI-сервисам из России
+- [Claude AI Pro / Max / Code (Anthropic)](https://plati.market/itm/bystro-garantija-podpiska-claude-ai-pro-max-code-anthropic-4-6/4023986) - пример проверенного предложения на Plati.market для доступа к Claude
+- [ChatGPT Plus / Pro / Go / Codex](https://plati.market/itm/chatgpt-5-4-plus-pro-go-codex-1-m-podpiska-aktivacija-prodlenie-chat-gpt/4339002) - пример проверенного предложения на Plati.market для доступа к ChatGPT и Codex
 
 ### Полезные веб-инструменты для знакомства с моделями
 
