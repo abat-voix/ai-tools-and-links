@@ -119,6 +119,14 @@ docker --version
 - [Tiktokenizer](https://tiktokenizer.vercel.app/) - удобный веб-интерфейс для оценки токенов в моделях OpenAI
 - [Anthropic Tokenizer](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) - документация и инструменты для подсчета токенов Claude
 
+### Observability и мониторинг LLM
+
+Инструменты для отладки, трейсинга и мониторинга LLM-приложений в продакшене. Позволяют видеть, что происходит внутри цепочки вызовов: промпты, ответы, tool calls, шаги RAG.
+
+- [Arize Phoenix](https://phoenix.arize.com/) - open-source платформа для LLM-observability от Arize AI. Трейсинг на базе OpenTelemetry, оценка качества ответов, отладка RAG и агентов. Можно развернуть локально без ограничений
+- [Arize AX](https://arize.com/) - enterprise-платформа для мониторинга LLM и ML-моделей в продакшене. Алерты, дашборды, анализ дрифта
+- [Arize Phoenix на GitHub](https://github.com/Arize-ai/phoenix) - исходный код Phoenix, удобно для self-hosted установки и контрибуции
+
 ### AI-ассистенты для разработки
 
 Инструменты, которые помогают писать код, отлаживать и работать с проектами прямо из терминала или IDE.
