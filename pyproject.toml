@@ -1,0 +1,33 @@
+[project]
+name = "ai-developer-examples"
+version = "0.1.0"
+authors = [
+    {name = "Игорь Соколов", email = "abat-voix@mail.ru"},
+]
+description = "Обучающие примеры кода к курсу «AI-разработчик: от API до агентов»"
+requires-python = ">=3.11"
+
+[tool.poetry]
+name = "ai-developer-examples"
+version = "0.1.0"
+description = "Обучающие примеры кода к курсу «AI-разработчик: от API до агентов»"
+authors = ["Игорь Соколов <abat-voix@mail.ru>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+openai = ">=1.0"
+anthropic = ">=0.30"
+httpx = ">=0.27"
+python-dotenv = ">=1.0"
+tiktoken = ">=0.7"
+groq = {version = ">=0.9", optional = true}
+aiogram = {version = ">=3.22", optional = true}
+langchain = {version = ">=0.3.26", optional = true}
+sentence-transformers = {version = ">=3.0", optional = true}
+langgraph = {version = ">=1.0.1", optional = true}
+ollama = "^0.6.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
