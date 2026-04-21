@@ -42,3 +42,26 @@
 - `4_chat_bot_calc.py` - расчет примерной стоимости чат-бота при разных провайдерах и сценариях нагрузки.
 - `5_routing.py` - пример routing-подхода для распределения запросов.
 - `6_prompt_caching.py` - демонстрация prompt caching на повторяющихся запросах.
+
+### Что находится в `m1_b3`
+
+Папка `m1_b3` содержит учебные материалы по теме локальных LLM и Ollama:
+
+- `_1_OLLAMA_INSTALL_COMMANDS.md` - команды установки Ollama на macOS, Linux и Windows, а также базовая проверка запуска.
+- `_2_OLLAMA_CLI_CHEATSHEET.md` - шпаргалка по основным CLI-командам Ollama: `pull`, `run`, `list`, `show`, `cp` и другим.
+- `_3_OLLAMA_API_CHAT_EXAMPLE.MD` - пример вызова локальной модели через Ollama API `/api/chat` с помощью `curl`.
+- `_4_OLLAMA_OPENAI_COMPAT_CHAT.md` - сравнение Ollama OpenAI-совместимого API и обычного запроса к OpenAI Chat Completions.
+- `_5_ollama_python_chat_example.py` - базовый Python-пример вызова локальной модели через библиотеку `ollama`.
+- `_6_ollama_python_stream_example.py` - пример потокового вывода токенов при ответе модели.
+- `_7_openai_client_with_ollama_example.py` - использование OpenAI Python-клиента для работы с локальным сервером Ollama.
+- `_8_switch_local_openai_example.py` - переключение одного и того же кода между локальной моделью в Ollama и облачной моделью OpenAI.
+- `_9_requests_ollama_example.py` - примеры работы с Ollama через `requests`, включая обычный режим и стриминг.
+- `_10_0_ollama_structured_outputs_example.py` - structured outputs в Ollama с валидацией ответа через `Pydantic`.
+- `_10_1_openai_structured_outputs_example.py` - аналогичный пример structured outputs для OpenAI API.
+- `_11_ollama_tool_calling_example.py` - демонстрация tool calling: модель вызывает функцию, приложение исполняет её и возвращает результат.
+- `_12_Modelfile` - простой `Modelfile` для создания собственной модели на базе `qwen3:8b` с параметрами и system prompt.
+- `_13_run_modelfile.MD` - команды создания и запуска кастомной модели из `Modelfile`.
+- `_14_modelfile_advanced` - более продвинутый пример `Modelfile` с шаблоном prompt и настройкой роли code reviewer.
+- `_15_ollama_benchmark_example.py` - небольшой бенчмарк для сравнения локальных моделей по времени ответа и скорости генерации.
+- `_16_ollama_chatbot_example.py` - консольный чат-бот с историей сообщений, стримингом и ограничением контекста.
+- `_17_ollama_code_review_example.py` - пример структурированного code review локальной моделью с JSON-ответом и `Pydantic`.
