@@ -65,3 +65,22 @@
 - `_15_ollama_benchmark_example.py` - небольшой бенчмарк для сравнения локальных моделей по времени ответа и скорости генерации.
 - `_16_ollama_chatbot_example.py` - консольный чат-бот с историей сообщений, стримингом и ограничением контекста.
 - `_17_ollama_code_review_example.py` - пример структурированного code review локальной моделью с JSON-ответом и `Pydantic`.
+
+## Hugging Face
+
+[Hugging Face](https://huggingface.co/) — крупнейшая открытая платформа для моделей машинного обучения, датасетов и демо-приложений.
+
+### Начало работы
+
+- [Регистрация](https://huggingface.co/join) — создание аккаунта.
+- [Создание Access Token](https://huggingface.co/settings/tokens) — персональный токен для доступа к API, приватным моделям и `huggingface_hub`.
+
+### Полезные разделы на Hugging Face
+
+- [Models](https://huggingface.co/models) — каталог моделей (LLM, vision, audio и др.) с фильтрами по задаче, лицензии и размеру.
+- [Datasets](https://huggingface.co/datasets) — каталог датасетов для обучения и оценки моделей.
+- [Spaces](https://huggingface.co/spaces) — демо-приложения на Gradio и Streamlit, которые можно запускать прямо в браузере.
+- [Open LLM Leaderboard](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard) — рейтинг открытых LLM по стандартным бенчмаркам.
+- [Документация Transformers](https://huggingface.co/docs/transformers) — основная библиотека для работы с моделями.
+- [Документация huggingface_hub](https://huggingface.co/docs/huggingface_hub) — Python-библиотека для загрузки моделей, датасетов и взаимодействия с API.
+- [Inference API](https://huggingface.co/docs/api-inference) — бесплатный serverless API для быстрого тестирования моделей.
