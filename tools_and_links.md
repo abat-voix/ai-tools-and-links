@@ -152,3 +152,19 @@ docker --version
 - [tiktoken](https://github.com/openai/tiktoken) - популярная библиотека Python для подсчета токенов в моделях OpenAI
 - [transformers](https://github.com/huggingface/transformers) - большая библиотека Hugging Face с токенайзерами и моделями
 - [tokenizers](https://github.com/huggingface/tokenizers) - быстрые токенайзеры от Hugging Face, удобно для работы с текстом и своими пайплайнами
+
+### Документация по API и SDK
+
+- [OpenAI API Reference](https://platform.openai.com/docs/api-reference/chat) - справочник по Chat Completions API и другим эндпоинтам OpenAI
+- [OpenAI Python SDK](https://github.com/openai/openai-python) - официальная Python-библиотека для работы с OpenAI API
+- [Anthropic API Docs](https://docs.anthropic.com/en/api/messages) - документация по Messages API от Anthropic (Claude)
+- [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) - официальная Python-библиотека для работы с Claude API
+- [OpenRouter Docs](https://openrouter.ai/docs/quickstart) - документация и быстрый старт с OpenRouter API
+- [GigaChat API Docs](https://developers.sber.ru/docs/ru/gigachat/api/reference/rest/gigachat-api) - документация по API GigaChat от Сбера
+- [python-dotenv](https://github.com/theskumar/python-dotenv) - библиотека для загрузки переменных окружения из `.env` файлов
+
+### Цены и сравнения моделей
+
+- [OpenAI Pricing](https://platform.openai.com/docs/pricing) - актуальные цены на модели и API OpenAI
+- [Anthropic Pricing](https://docs.anthropic.com/en/docs/about-claude/pricing) - актуальные цены на модели Claude
+- [OpenRouter Models](https://openrouter.ai/models) - каталог моделей с ценами и сравнением на OpenRouter
