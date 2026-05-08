@@ -128,6 +128,26 @@ docker --version
 - [Tiktokenizer](https://tiktokenizer.vercel.app/) - удобный веб-интерфейс для оценки токенов в моделях OpenAI
 - [Anthropic Tokenizer](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) - документация и инструменты для подсчета токенов Claude
 
+### Prompt engineering и evaluation
+
+Подборка полезна для понимания, как создавать эффективные промпты, работать с reasoning-моделями и оценивать качество ответов.
+
+- [OpenAI Prompting](https://platform.openai.com/docs/guides/prompting) - актуальный гайд по созданию, хранению и улучшению промптов
+- [OpenAI Reasoning Best Practices](https://platform.openai.com/docs/guides/reasoning-best-practices) - рекомендации по работе с reasoning-моделями и выбору подхода
+- [OpenAI Reasoning Guide](https://platform.openai.com/docs/guides/reasoning) - обзор reasoning-моделей и сценариев их применения
+- [Anthropic Prompt Engineering](https://docs.anthropic.com/en/docs/prompt-engineering) - обзор техник prompt engineering для Claude
+- [Anthropic Prompt Library](https://docs.anthropic.com/en/prompt-library/library) - библиотека готовых prompt-шаблонов под разные задачи
+- [Anthropic XML Tags Guide](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/use-xml-tags) - как структурировать сложные промпты через XML-теги
+- [Anthropic Eval Tool](https://docs.anthropic.com/en/docs/test-and-evaluate/eval-tool) - инструмент для сравнения и прогона промптов на тест-кейсах
+- [Anthropic `templatize_prompt`](https://docs.anthropic.com/en/api/prompt-tools-templatize) - API-утилита для извлечения переменных из промпта
+- [Brex Prompt Engineering Guide](https://github.com/brexhq/prompt-engineering) - практический production-подход к проектированию промптов
+- [Jinja2 Documentation](https://jinja.palletsprojects.com/) - шаблонизатор для prompt templates и параметризации инструкций
+
+### Полезные статьи по prompting
+
+- [Chain-of-Thought Prompting Elicits Reasoning in Large Language Models](https://arxiv.org/abs/2201.11903) - классическая статья Wei et al. про chain-of-thought prompting
+- [Language Models are Few-Shot Learners](https://arxiv.org/abs/2005.14165) - статья Brown et al. про few-shot learning в GPT-3
+
 ### Observability и мониторинг LLM
 
 Инструменты для отладки, трейсинга и мониторинга LLM-приложений в продакшене. Позволяют видеть, что происходит внутри цепочки вызовов: промпты, ответы, tool calls, шаги RAG.
