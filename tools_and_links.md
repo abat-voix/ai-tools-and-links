@@ -130,7 +130,7 @@ docker --version
 
 ### Prompt engineering и evaluation
 
-Подборка полезна для понимания, как создавать эффективные промпты, работать с reasoning-моделями и оценивать качество ответов.
+Подборка полезна для модулей про промпты, reasoning-модели, шаблоны и тестирование качества ответов.
 
 - [OpenAI Prompting](https://platform.openai.com/docs/guides/prompting) - актуальный гайд по созданию, хранению и улучшению промптов
 - [OpenAI Reasoning Best Practices](https://platform.openai.com/docs/guides/reasoning-best-practices) - рекомендации по работе с reasoning-моделями и выбору подхода
@@ -142,6 +142,18 @@ docker --version
 - [Anthropic `templatize_prompt`](https://docs.anthropic.com/en/api/prompt-tools-templatize) - API-утилита для извлечения переменных из промпта
 - [Brex Prompt Engineering Guide](https://github.com/brexhq/prompt-engineering) - практический production-подход к проектированию промптов
 - [Jinja2 Documentation](https://jinja.palletsprojects.com/) - шаблонизатор для prompt templates и параметризации инструкций
+
+### Инструменты для создания промптов
+
+Эти инструменты прямо помогают собирать черновики промптов, улучшать их, шаблонизировать и переводить в production-формат.
+
+- [OpenAI Playground](https://platform.openai.com/playground) - быстро пробовать промпты, модели, temperature и structured output для первого прототипа и ручной отладки
+- [OpenAI Prompts](https://platform.openai.com/docs/guides/prompting) - prompt objects с переменными, версиями и rollout, когда промпт становится частью production
+- [OpenAI Generate](https://platform.openai.com/docs/guides/prompt-generation/meta-prompts) - автогенерация prompt и schema по описанию задачи, полезно для быстрого черновика или рефакторинга
+- [Anthropic Console Evaluate](https://docs.anthropic.com/en/docs/test-and-evaluate/eval-tool) - сравнение версий prompt на тест-кейсах и regression-check при итерациях
+- [Anthropic Console Generate Prompt](https://docs.anthropic.com/en/docs/test-and-evaluate/eval-tool) - генерация стартового prompt внутри Console для быстрого старта с Claude
+- [Anthropic `templatize_prompt`](https://docs.anthropic.com/en/api/prompt-tools-templatize) - выделяет переменные из готового prompt и помогает превратить его в параметризованный template
+- [Jinja2 Documentation](https://jinja.palletsprojects.com/) - шаблонизатор для versioned prompt templates в кодовой базе
 
 ### Полезные статьи по prompting
 
