@@ -130,7 +130,7 @@ docker --version
 
 ### Prompt engineering и evaluation
 
-Подборка полезна для модулей про промпты, reasoning-модели, шаблоны и тестирование качества ответов.
+Подборка полезна для понимания, как создавать эффективные промпты, работать с reasoning-моделями и оценивать качество ответов.
 
 - [OpenAI Prompting](https://platform.openai.com/docs/guides/prompting) - актуальный гайд по созданию, хранению и улучшению промптов
 - [OpenAI Reasoning Best Practices](https://platform.openai.com/docs/guides/reasoning-best-practices) - рекомендации по работе с reasoning-моделями и выбору подхода
