@@ -1,7 +1,5 @@
 # Slide: Exponential Backoff с jitter
 
-from __future__ import annotations
-
 import os
 import time
 import random

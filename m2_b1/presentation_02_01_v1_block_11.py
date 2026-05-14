@@ -1,6 +1,4 @@
 # Slide: Anthropic API: отличия от OpenAI
-from __future__ import annotations
-
 import os
 
 

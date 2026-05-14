@@ -1,7 +1,5 @@
 # Slide: Prompt templates: параметризация
 
-from __future__ import annotations
-
 
 def main() -> None:
     # Вариант 1: f-strings (простейший)

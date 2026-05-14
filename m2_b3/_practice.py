@@ -6,8 +6,6 @@
 # 4. Бонус: fallback на второго провайдера
 # 5. Бонус: подсчёт общей стоимости за сессию
 
-from __future__ import annotations
-
 import os
 from typing import Any
 

@@ -1,7 +1,5 @@
 # Slide: tiktoken: считаем токены до отправки
 
-from __future__ import annotations
-
 
 def main() -> None:
     try:

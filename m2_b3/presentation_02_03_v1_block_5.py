@@ -1,7 +1,5 @@
 # Slide: Prompt Caching: экономим до 90%
 
-from __future__ import annotations
-
 import os
 from typing import Any
 

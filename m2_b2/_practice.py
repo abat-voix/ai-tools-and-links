@@ -4,8 +4,6 @@
 # Использование:
 #     python m2_b2/_practice.py
 
-from __future__ import annotations
-
 import json
 import os
 from typing import Any

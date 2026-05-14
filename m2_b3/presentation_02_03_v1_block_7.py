@@ -1,7 +1,5 @@
 # Slide: Usage tracking: алерт на превышение бюджета
 
-from __future__ import annotations
-
 import os
 from datetime import datetime
 from typing import Any

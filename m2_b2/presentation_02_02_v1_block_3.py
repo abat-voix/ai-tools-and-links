@@ -1,7 +1,5 @@
 # Slide: Chain-of-thought: «подумай шаг за шагом»
 
-from __future__ import annotations
-
 import os
 from typing import Any
 

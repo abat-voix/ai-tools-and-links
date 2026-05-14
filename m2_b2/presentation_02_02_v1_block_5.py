@@ -1,7 +1,5 @@
 # Slide: Управление контекстом: приоритеты
 
-from __future__ import annotations
-
 import os
 from typing import Any
 
