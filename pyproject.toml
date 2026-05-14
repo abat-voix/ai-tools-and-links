@@ -33,6 +33,7 @@ torch = "^2.11.0"
 gradio = "^6.13.0"
 tenacity = "^9.1.4"
 redis = "^7.4.0"
+loguru = "^0.7.3"
 
 [build-system]
 requires = ["poetry-core"]
