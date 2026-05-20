@@ -177,6 +177,16 @@ docker --version
 - [Superpowers](https://github.com/obra/superpowers) — фреймворк агентных навыков для AI-ассистентов. Добавляет структурированный процесс разработки: TDD, систематический дебаг, code review. Работает с Claude Code, Cursor, GitHub Copilot CLI
 - [Context7](https://context7.com/) — MCP-сервер и веб-сервис, который подтягивает актуальную документацию библиотек прямо в контекст AI-ассистента. Полезно, когда модель «галлюцинирует» устаревшие API
 
+### Инструменты для конвертации файлов в Markdown
+
+Бесплатные инструменты, которые пригодятся на курсе для подготовки документов, инструкций, базы знаний и данных для LLM.
+
+- [MarkItDown](https://github.com/microsoft/markitdown) - универсальный open-source инструмент для конвертации `pdf`, `docx`, `pptx`, `xlsx`, `html` и других форматов в Markdown
+- [Docling](https://docling.site/cli/) - open-source инструмент для качественного разбора документов, особенно полезен для сложных `PDF` и подготовки данных для RAG
+- [PyMuPDF4LLM](https://github.com/pymupdf/pymupdf4llm) - специализированная open-source библиотека для конвертации `PDF` в Markdown, чанкинга и OCR-сценариев
+- [Pandoc](https://pandoc.org/) - бесплатный универсальный конвертер документов и разметки, особенно полезен для `docx`, `html`, `odt`, `epub` и других текстовых форматов
+- [markdownify](https://github.com/matthewwithanm/python-markdownify) - легкая бесплатная библиотека для конвертации `HTML` в Markdown
+
 ### Python-библиотеки для токенизации и LLM
 
 Если хочется не только смотреть токены в браузере, но и считать их прямо в коде, пригодятся такие библиотеки:
@@ -184,6 +194,15 @@ docker --version
 - [tiktoken](https://github.com/openai/tiktoken) - популярная библиотека Python для подсчета токенов в моделях OpenAI
 - [transformers](https://github.com/huggingface/transformers) - большая библиотека Hugging Face с токенайзерами и моделями
 - [tokenizers](https://github.com/huggingface/tokenizers) - быстрые токенайзеры от Hugging Face, удобно для работы с текстом и своими пайплайнами
+
+### Python-библиотеки для API-интеграций и инфраструктуры
+
+Здесь собраны библиотеки, которые часто нужны для практических LLM-интеграций: работа с `.env`, retry-логика, кеш и логирование.
+
+- [python-dotenv](https://github.com/theskumar/python-dotenv) - библиотека для загрузки переменных окружения из `.env` файлов
+- [Tenacity](https://tenacity.readthedocs.io/) - библиотека для retry-логики: повторные попытки, exponential backoff и гибкие правила обработки ошибок
+- [redis-py](https://github.com/redis/redis-py) - Python-клиент для Redis, полезен для кеша, хранения состояний и ускорения повторных запросов
+- [Loguru](https://github.com/Delgan/loguru) - удобная библиотека для логирования с более простым API, чем стандартный `logging`
 
 ### Документация по API и SDK
 
@@ -193,7 +212,6 @@ docker --version
 - [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python) - официальная Python-библиотека для работы с Claude API
 - [OpenRouter Docs](https://openrouter.ai/docs/quickstart) - документация и быстрый старт с OpenRouter API
 - [GigaChat API Docs](https://developers.sber.ru/docs/ru/gigachat/api/reference/rest/gigachat-api) - документация по API GigaChat от Сбера
-- [python-dotenv](https://github.com/theskumar/python-dotenv) - библиотека для загрузки переменных окружения из `.env` файлов
 
 ### Цены и сравнения моделей
 
