@@ -20,9 +20,8 @@ from fastapi import UploadFile
 
 from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
-from app.chat.prompts.repository import SystemPromptRepository
-from app.chat.prompts.service import choose_by_split
-from app.chat.repository import ChatRepository
+from app.chat.prompt_selection import choose_by_split
+from app.chat.repository import ChatRepository, SystemPromptRepository
 from app.moderation.domain import ModerationResult
 from app.moderation.service import ModerationService
 

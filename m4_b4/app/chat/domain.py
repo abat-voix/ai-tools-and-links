@@ -38,3 +38,18 @@ class Chat(BaseModel):
     interface: str
     system_prompt: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SystemPrompt(BaseModel):
+    """Версионированный системный промпт — кандидат A/B traffic-split.
+
+    Активные кандидаты выбираются репозиторием (active=TRUE и traffic_pct>0),
+    конкретный вариант для пользователя — `prompt_selection.choose_by_split`.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    version: str
+    body: str
+    traffic_pct: int

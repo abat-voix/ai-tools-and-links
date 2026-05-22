@@ -1,11 +1,11 @@
-"""Контракт ChatRepository через typing.Protocol.
+"""Контракты репозиториев чата через typing.Protocol.
 
 Реализации не обязаны наследоваться явно: структурная типизация.
 """
 from typing import Protocol
 from uuid import UUID
 
-from app.chat.domain import Chat, ChatMessage
+from app.chat.domain import Chat, ChatMessage, SystemPrompt
 
 
 class ChatRepository(Protocol):
@@ -33,3 +33,9 @@ class ChatRepository(Protocol):
     ) -> list[ChatMessage]: ...
 
     async def soft_delete_messages(self, chat_id: UUID) -> None: ...
+
+
+class SystemPromptRepository(Protocol):
+    async def list_active(self) -> list[SystemPrompt]:
+        """Активные кандидаты A/B-сплита (active=TRUE и traffic_pct>0)."""
+        ...

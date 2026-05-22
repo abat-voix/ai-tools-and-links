@@ -48,3 +48,16 @@ class ChatMessageRow(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         TimestampTZ, nullable=True
     )
+
+
+class SystemPromptRow(Base):
+    __tablename__ = "system_prompts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    version: Mapped[str]
+    body: Mapped[str]
+    active: Mapped[bool] = mapped_column(default=False)
+    traffic_pct: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        TimestampTZ, default=lambda: datetime.now(UTC)
+    )

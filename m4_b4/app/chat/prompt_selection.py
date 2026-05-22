@@ -13,7 +13,7 @@ Sticky split: один и тот же `owner_external_id` всегда попа�
 
 import hashlib
 
-from app.chat.prompts.repository import SystemPrompt
+from app.chat.domain import SystemPrompt
 
 
 def choose_by_split(

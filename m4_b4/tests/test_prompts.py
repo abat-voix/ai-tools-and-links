@@ -2,8 +2,8 @@
 
 from uuid import uuid4
 
-from app.chat.prompts.repository import SystemPrompt
-from app.chat.prompts.service import choose_by_split
+from app.chat.domain import SystemPrompt
+from app.chat.prompt_selection import choose_by_split
 
 
 def _mk(version: str, pct: int) -> SystemPrompt:

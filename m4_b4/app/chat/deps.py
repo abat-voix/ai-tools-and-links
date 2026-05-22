@@ -5,9 +5,11 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from app.chat.prompts.repository import SystemPromptRepository
 from app.chat.repositories.json_repo import JsonChatRepository
-from app.chat.repositories.pg_repo import PostgresChatRepository
+from app.chat.repositories.pg_repo import (
+    PostgresChatRepository,
+    PostgresSystemPromptRepository,
+)
 from app.chat.repository import ChatRepository
 from app.chat.service import ChatService
 from app.core.config import get_settings
@@ -62,7 +64,7 @@ def get_chat_service(
     # Prompt repository: только если есть PG-сессия. Иначе choose_by_split
     # вернёт None и в send_message сработает chat.system_prompt.
     prompt_repo = (
-        SystemPromptRepository(session_factory)
+        PostgresSystemPromptRepository(session_factory)
         if session_factory is not None
         else None
     )
