@@ -51,7 +51,7 @@ class RobustLLMClient:
         """Классифицирует запрос: primary → fallback → эвристика."""
         for client, model, _ in self._provider_chain():
             try:
-                raw = self._call(client, model, messages, temperature=0, max_tokens=8)
+                raw, _ = self._call(client, model, messages, temperature=0, max_tokens=8)
                 return Category(raw.strip().lower())
             except Exception:
                 continue
@@ -130,8 +130,8 @@ class RobustLLMClient:
         self, client: OpenAI, model: str, messages: list[dict[str, Any]],
     ) -> tuple[str, int]:
         """Один ответ от провайдера. Возвращает (текст, токены)."""
-        text = self._call(client, model, messages)
-        return (text or FALLBACK_ANSWER), 0
+        text, tokens = self._call(client, model, messages)
+        return (text or FALLBACK_ANSWER), tokens
 
     def _call(
         self,
@@ -140,7 +140,7 @@ class RobustLLMClient:
         messages: list[dict[str, Any]],
         temperature: float = 0.2,
         max_tokens: int = 250,
-    ) -> str:
+    ) -> tuple[str, int]:
         """Вызов LLM с retry через tenacity (экспоненциальная задержка)."""
 
         @retry(
@@ -148,7 +148,7 @@ class RobustLLMClient:
             stop=stop_after_attempt(self.settings.retry_attempts),
             retry=retry_if_exception_type((RateLimitError, APIStatusError)),
         )
-        def _do() -> str:
+        def _do() -> tuple[str, int]:
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -156,6 +156,9 @@ class RobustLLMClient:
                 max_tokens=max_tokens,
                 timeout=self.settings.request_timeout_seconds,
             )
-            return (response.choices[0].message.content or "").strip()
+            text = (response.choices[0].message.content or "").strip()
+            tokens = getattr(response.usage, "total_tokens", 0) if response.usage else 0
+            logger.debug("LLM usage: {} | tokens={}", response.usage, tokens)
+            return text, tokens
 
         return _do()
