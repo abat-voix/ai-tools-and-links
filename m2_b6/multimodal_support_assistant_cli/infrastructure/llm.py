@@ -49,7 +49,8 @@ class RobustLLMClient:
 
     def classify(self, messages: list[dict[str, str]]) -> Category:
         """Классифицирует запрос: primary → fallback → эвристика."""
-        for client, model, _ in self._provider_chain():
+        for client, _, used_fallback in self._provider_chain():
+            model = self.settings.fallback_model if used_fallback else self.settings.classifier_model
             try:
                 raw, _ = self._call(client, model, messages, temperature=0, max_tokens=8)
                 return Category(raw.strip().lower())
