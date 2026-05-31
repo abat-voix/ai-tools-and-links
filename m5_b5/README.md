@@ -1,169 +1,145 @@
-# llm-service + Telegram-бот + Qdrant (M5Б2)
+# Корпоративный RAG — FastAPI + Qdrant + LlamaIndex
 
-Чат-сервис (FastAPI + Postgres) + тонкий Telegram-бот + Qdrant для RAG.
-Развитие M4Б4: к чат-ядру добавлен `app/services/vector_store.py` — обёртка
-над `AsyncQdrantClient`, плюс скрипты загрузки и сравнения метрик для
-ДЗ Б5.2.
+Образцовая реализация для блока «Корпоративный RAG». Это снимок **одного сквозного
+сервиса**, который растёт от чекпоинта к чекпоинту: чат-ядро на FastAPI, тонкий
+Telegram-бот, Qdrant как векторное хранилище, ответ по базе знаний с цитатами на
+источники. На этом шаге сервис обрастает **корпоративной обвязкой**: документы
+загружаются и переиндексируются через ручки, индексация вынесена в отдельный
+конвейер, а RAG-запросы логируются для аналитики.
 
-## Quick start (M5Б2)
+## Что нового на этом чекпоинте
+
+Относительно предыдущего снимка (RAG-ответ с цитатами уже работал через
+`POST /rag/query`) добавлена корпоративная обвязка: **ручки для документов**,
+**офлайн-конвейер индексации**, **аналитика RAG-запросов** — и сам **путь RAG стал
+умнее**: широкий поиск, опциональный реранкинг и честный отказ, если ничего
+уверенного не нашлось.
+
+| Что добавилось | Файл | Зачем |
+|---|---|---|
+| Ручки для документов | `app/routers/documents.py` | `POST /documents/upload` (загрузить файл) и `POST /documents/reindex` (переиндексировать корпус) — тяжёлая работа уходит в фон, ответ `202 queued` сразу |
+| Конвейер индексации | `app/services/ingestion.py` | `IngestionService` на LlamaIndex `IngestionPipeline`: парсинг корпуса, обогащение метаданными из путей, инкрементальный `UPSERTS` по сохранённому docstore |
+| Аналитика запросов | `migrations/versions/0003_rag_queries_sources.py` | таблица `rag_queries` (лог запросов: уверенность ответа и top-score) + колонка `chat_messages.sources` (цитаты рядом с ответом ассистента) |
+| Умнее путь RAG | `app/services/rag.py`, `app/routers/rag.py` | широкий поиск → опциональный реранкинг → код-гард (честный отказ, если лучший score ниже порога) → синтез с нумерованными цитатами; ответ теперь содержит флаг `confident` и богатые цитаты `{id, file_name, snippet}` |
+| Проверка | `tests/test_documents.py`, `tests/test_ingestion.py`, `tests/test_analytics.py` | ручки документов на фейковом индексаторе, чистые функции конвейера, лог запросов и пробелы в знаниях |
+
+### Два контура
+
+- **Онлайн (запрос):** `POST /rag/query` стал устойчивее — широкий поиск,
+  опциональный реранкинг и честный отказ, если лучший score ниже порога (флаг
+  `confident`). После ответа пишет строку в `rag_queries` (нормализованный вопрос,
+  `confident`, `top_score`); сбой записи лога не роняет ответ пользователю.
+- **Офлайн (индексация):** документ приходит через `POST /documents/upload`,
+  сохраняется в корпус, а парсинг и эмбеддинг уходят в `BackgroundTasks`. Это
+  отдельный `IngestionService`, который пишет в ту же коллекцию Qdrant, из которой
+  читает `RAGService`. Для продакшена вместо `BackgroundTasks` — отдельный воркер
+  (Celery/RQ/Dramatiq).
+
+Конвейер индексации: `SimpleDirectoryReader` (с метаданными из путей: `department`,
+`doc_type`, `version`, `visibility`) → `enrich` (чистка PDF-шума, исключение
+технических полей из эмбеддинга) → `SentenceSplitter` → `OpenAIEmbedding` →
+`QdrantVectorStore`. Docstore сохраняется на диск, поэтому повторный прогон
+обновляет только изменённые документы, а не переэмбеддит весь корпус
+(`DocstoreStrategy.UPSERTS`).
+
+Аналитика читается через существующую админ-ручку `GET /chats/admin/stats`
+(защита `X-Admin-Token`): к прежним агрегатам добавились `refusal_rate` (доля
+неуверенных RAG-ответов за окно) и `knowledge_gaps` (топ вопросов без уверенного
+ответа — что добавить в базу знаний).
+
+## Куда смотреть
+
+Если интересна именно корпоративная дельта этого чекпоинта — начинать здесь:
+
+```
+app/routers/documents.py       # POST /documents/upload, POST /documents/reindex
+app/services/ingestion.py      # IngestionService: парсинг → метаданные → UPSERTS
+app/routers/rag.py             # POST /rag/query + запись в rag_queries
+app/admin/repository.py        # compute_stats: refusal_rate + knowledge_gaps
+migrations/versions/0003_rag_queries_sources.py   # rag_queries + chat_messages.sources
+```
+
+Карта всего сервиса:
+
+```
+app/        серверная часть на FastAPI: chat/ (чат-ядро), routers/, services/,
+            moderation/ (фильтр + модерация OpenAI), admin/, ratelimit/, observability/
+bot/        тонкий Telegram-бот (aiogram 3.x); своей истории не хранит — единственный
+            источник правды это серверная часть
+data/       учебные корпуса (rag-block-03 — база для RAG)
+migrations/ alembic (чаты, лимиты, отзывы, промпты, оповещения, лог RAG-запросов)
+tests/      pytest-asyncio, httpx.ASGITransport — без обращения к сети
+```
+
+## Быстрый старт
+
+Нужен [`uv`](https://docs.astral.sh/uv/) (`brew install uv` или `pip install uv`);
+Python 3.12+ `uv` поставит сам.
 
 ```bash
-# 1) Поднимаем Qdrant
-docker compose up -d qdrant
-# Дашборд: http://localhost:6333/dashboard
+# 1) Векторное хранилище
+docker compose up -d qdrant          # панель: http://localhost:6333/dashboard
 
-# 2) Зависимости
+# 2) Зависимости и конфиг
 uv sync
+cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
 
-# 3) Сгенерировать учебный корпус (120 SaaS-FAQ-чанков)
-python data/generate_sample.py
-
-# 4) Залить в Qdrant (нужен LLM__OPENAI_API_KEY в .env)
-python scripts/load_to_qdrant.py
-# → создаст коллекцию documents, зальёт 120 точек с payload-индексами
-
-# 5) Сравнить ранжирование cosine vs dot
-python scripts/compare_metrics.py
-# → docs/metric_comparison.json + строки в консоль
-
-# 6) Smoke-тесты модуля
-QDRANT_TEST_URL=http://localhost:6333 uv run pytest tests/test_vector_store.py -v
-
-# 7) Проверка, что весь код из презентации работает на текущем qdrant-client
-QDRANT_TEST_URL=http://localhost:6333 uv run python scripts/verify_presentation.py
+# 3) Запустить серверную часть (корпус проиндексируется при старте, если пуст)
+uv run uvicorn app.main:app --reload --port 8000
+# Swagger: http://localhost:8000/docs
 ```
 
-## Что добавлено в M5Б2
+При старте `lifespan` поднимает `IngestionService` и, если коллекция Qdrant пуста,
+индексирует корпус один раз. На рестартах `UPSERTS` по сохранённому docstore
+пропускает неизменённое.
 
-```
-app/services/vector_store.py   # VectorStore — обёртка над AsyncQdrantClient
-app/services/embeddings.py     # OpenAI embeddings (батчевый клиент)
-scripts/load_to_qdrant.py      # идемпотентная загрузка (UUID5 по source+chunk_index)
-scripts/compare_metrics.py     # cosine vs dot — два временных индекса, удаление после
-scripts/verify_presentation.py # импорты + сценарии из всех code-слайдов презы
-data/generate_sample.py        # синтетический корпус (120 FAQ про SaaS-поддержку)
-data/sample_kb.jsonl           # сам корпус (на дипломе заменяется на свои данные)
-tests/test_vector_store.py     # 8 smoke-тестов — требуют QDRANT_TEST_URL
-docs/vector_store.md           # шаблон отчёта по ДЗ
-```
-
-В `compose.yaml` добавлен сервис `qdrant` (порты 6333/6334, named volume
-`qdrant_storage`, healthcheck по TCP). В `app/main.py` lifespan создаёт
-`VectorStore` и вызывает `ensure_collection`, а также строит `RAGService`
-(LlamaIndex) один раз на старте. RAG-ответ с цитатами доступен через
-`POST /rag/query`; bare-metal-аналог (`app/services/rag_baremetal.py`) — для
-сравнения. Подробности — в `docs/rag.md`.
-
-## Что внутри
-
-```
-app/                            # FastAPI backend
-├── main.py                     # lifespan (LLM/Redis/Postgres), middleware, exception map
-├── core/config.py              # Settings (pydantic-settings v2, nested LLMSettings)
-├── deps/providers.py           # SessionFactoryDep, LLMDep, CacheDep, VectorStoreDep, RAGServiceDep
-├── routers/
-│   ├── chat.py                 # /chat, /chat/stream (SSE), /chat/batch
-│   ├── rag.py                  # /rag/query — ответ по базе знаний с цитатами
-│   ├── models.py               # /models — каталог с ценами
-│   └── health.py               # /health, /ready
-├── services/
-│   ├── llm.py                  # LLMService: complete/stream, кеш, retry, mapping
-│   ├── rag.py                  # RAGService: LlamaIndex build() + answer() (Qdrant)
-│   ├── rag_baremetal.py        # тот же RAG руками, без фреймворка — для сравнения
-│   ├── broadcaster.py          # admin → bot:9000/notify, fan-out с throttle
-│   ├── notifier.py             # одиночный notify через bot /notify
-│   ├── alerter.py              # alerts: fire / fetch / ack (БД-очередь)
-│   └── handoff.py              # set_handoff_status_by_owner
-├── chat/                       # доменная логика chat-сервиса
-│   ├── domain.py               # Chat / ChatMessage (Pydantic + UUID)
-│   ├── repository.py           # Protocol ChatRepository
-│   ├── repositories/
-│   │   ├── json_repo.py        # JSONL append-only
-│   │   ├── pg_models.py        # SQLAlchemy table defs (chats / chat_messages)
-│   │   └── pg_repo.py          # Postgres backend
-│   ├── prompts/                # SystemPromptRepository + A/B traffic split
-│   ├── service.py              # ChatService: send_message (SSE), check_input, A/B
-│   ├── media.py                # image/voice/PDF/DOCX → OpenAI content-part
-│   ├── deps.py                 # ChatServiceDep, RepositoryDep
-│   └── routes.py               # /chats, /chats/{id}/messages (SSE), feedback
-├── admin/
-│   ├── routes.py               # /chats/admin/* (защита X-Admin-Token)
-│   ├── repository.py           # AdminRepository: stats / export / owner_ids by interface
-│   └── schemas.py              # StatsOut, BroadcastIn, ExportResult, AlertOut...
-├── moderation/                 # двухслойный каскад (regex + OpenAI Moderation)
-├── ratelimit/                  # token-bucket per owner_external_id (Postgres UPSERT)
-├── observability/pii.py        # маскирование PII при экспорте
-└── schemas/                    # request/response модели для /chat
-bot/                            # Telegram-бот (aiogram 3.x)
-├── __main__.py                 # polling + uvicorn(/notify) + drain_alerts в одном loop
-├── config.py                   # BotSettings (pydantic-settings)
-├── handlers/
-│   ├── commands.py             # /start /help /clear /cancel
-│   ├── text.py                 # свободный текст → backend SSE
-│   ├── media.py                # фото / голос / документ
-│   ├── fsm.py                  # /ask — wizard через FSM
-│   ├── admin.py                # /stats, /broadcast — только для BOT_ADMIN_IDS
-│   ├── handoff.py              # /operator — запрос юзера на оператора
-│   └── feedback.py             # up/down callback под ответом
-├── keyboards/inline.py         # feedback-клавиатура
-├── services/
-│   ├── backend_client.py       # async-клиент к /chats/* + admin endpoint'ам
-│   ├── streaming.py            # SSE → sendMessageDraft, fallback на edit_text
-│   ├── typing.py               # «бот печатает...» до прихода первого токена
-│   ├── error_handling.py       # mapping httpx.HTTPStatusError → user-facing
-│   └── alert_drain.py          # фон-таска: backend /alerts → admin-чат
-├── states.py                   # AskFlow (FSM)
-└── web.py                      # FastAPI /notify (защита X-Internal-Token)
-migrations/                     # alembic
-├── env.py
-└── versions/
-    ├── 0001_chats.py           # chats + chat_messages
-    └── 0002_production.py      # rate_limits, feedback, prompts, alerts, broadcasts
-tests/                          # pytest-asyncio, httpx.ASGITransport, без сети
-├── conftest.py
-├── test_chat.py / test_stream.py / test_models.py / test_health.py
-├── test_admin.py / test_moderation.py / test_pii.py / test_prompts.py / test_ratelimit.py
-├── chat/                       # routes / service / repository-contract / media / moderation
-└── bot/                        # backend_client (MockTransport), fsm, web
-```
-
-## Запуск
-
-Нужен `uv` (`brew install uv` или `pip install uv`), Python 3.12+ (uv подтянет сам).
-
-### Локально (только backend, без бота)
+## Проверить RAG
 
 ```bash
-uv sync
-cp .env.example .env       # подставить LLM__OPENAI_API_KEY для боевых вызовов
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+curl -s -X POST http://localhost:8000/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"За сколько дней можно вернуть деньги за подписку?"}'
+# → {"answer":"...14 дней [1].","top_score":0.57,"confident":true,
+#    "sources":[{"id":1,"file_name":"billing_refunds.md","score":0.57,"snippet":"..."}, ...]}
 ```
 
-- Swagger UI — http://localhost:8000/docs
-- OpenAPI    — http://localhost:8000/openapi.json
-- `/health`  — всегда 200 (liveness)
-- `/ready`   — 200/503 в зависимости от Redis
-
-Redis и Postgres опциональны для боевых вызовов: если их нет на старте,
-lifespan ловит ошибку и поднимается без них (кеш отключается, репозиторий
-переключается в `CHAT_REPOSITORY=json` режим).
-
-### Полный стек через Docker (backend + bot + redis + postgres)
+## Загрузить документ в базу знаний
 
 ```bash
-cp .env.example .env
-# Заполнить: LLM__OPENAI_API_KEY, BOT_TOKEN, BOT_ADMIN_IDS,
-# ADMIN_TOKEN (openssl rand -hex 32), INTERNAL_TOKEN (то же),
-# ADMIN_CHAT_ID (свой telegram user id для алертов в личку)
+# Файл сохраняется в корпус, индексация уходит в фон → 202 queued
+curl -s -X POST http://localhost:8000/documents/upload \
+  -F "file=@policy.pdf"
+# → {"status":"queued","detail":"policy.pdf принят, индексация в фоне"}
 
-docker compose up -d --build
-docker compose ps                     # все сервисы healthy через ~15 сек
-docker compose exec app alembic upgrade head   # накатить миграции
-docker compose logs -f bot            # увидеть «Bot starting ...»
+# Переиндексировать корпус: incremental (по умолчанию) / full / files
+curl -s -X POST http://localhost:8000/documents/reindex \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"incremental"}'
+# → {"status":"queued","detail":"режим incremental, индексация в фоне"}
 ```
 
-`compose.override.yaml` подмерживается автоматически в dev: `--reload`,
-bind-mount `./app:/app/app:ro` и проброс `redis:6379` / `postgres:5432` на хост.
+Поддерживаемые форматы: `.pdf`, `.docx`, `.md`, `.txt`, `.html`. Через 30–60 секунд
+новый документ появляется в индексе и доступен в ответах `POST /rag/query`. Упавший
+при индексации файл изолируется в `.failed` и виден в логах.
+
+## Аналитика RAG-запросов
+
+```bash
+TOKEN="$(grep ^ADMIN_TOKEN= .env | cut -d= -f2)"
+
+curl -s -H "X-Admin-Token: $TOKEN" http://localhost:8000/chats/admin/stats
+# → {..., "refusal_rate":0.12, "knowledge_gaps":["сброс пароля","оплата картой", ...]}
+```
+
+`refusal_rate` — доля запросов, на которые сервис честно ответил «не нашёл»;
+`knowledge_gaps` — самые частые такие вопросы, то есть чего не хватает в базе.
+Для этого нужен поднятый Postgres с накатанными миграциями (см. полный стек ниже).
+
+## Проверить конвейер индексации против живого Qdrant
+
+```bash
+QDRANT_TEST_URL=http://localhost:6333 uv run python scripts/verify_rag.py
+```
 
 ## Тесты
 
@@ -171,79 +147,18 @@ bind-mount `./app:/app/app:ro` и проброс `redis:6379` / `postgres:5432` 
 uv run pytest -q
 ```
 
-Все тесты используют `httpx.AsyncClient + ASGITransport` (для backend) и
-`httpx.MockTransport` (для bot-клиента) — сети нет, `OPENAI_API_KEY` для прогона
-не нужен. Ожидаемый вывод: `106 passed, 9 skipped` (пропущенные — smoke-тесты
-Qdrant, включаются переменной `QDRANT_TEST_URL`).
+Тесты идут без сети и без `OPENAI_API_KEY` (через `httpx.ASGITransport`): ручки
+документов проверяются на фейковом индексаторе, чистые функции конвейера
+(`clean`, `enrich`, метаданные из путей) — напрямую, лог запросов и пробелы в
+знаниях — на фейковой сессии. Проверочные тесты Qdrant включаются переменной
+`QDRANT_TEST_URL=http://localhost:6333`.
 
-## Примеры HTTP-вызовов
-
-### Создать чат / послать сообщение (SSE)
-
-```bash
-# 1. Идемпотентно создать чат (или получить существующий по owner+interface)
-curl -s -X POST http://localhost:8000/chats \
-  -H "Content-Type: application/json" \
-  -d '{"owner_external_id":"u-42","interface":"telegram"}'
-# → {"chat_id":"<uuid>"}
-
-# 2. Стримить ответ
-curl -N -X POST "http://localhost:8000/chats/<uuid>/messages" \
-  -H "X-Owner-External-Id: u-42" \
-  -F content="Привет, расскажи про себя одним предложением"
-# data: {"type":"token","delta":"..."}\n\n
-# data: {"type":"message_saved","message_id":"<uuid>"}\n\n
-# data: {"type":"done"}\n\n
-```
-
-### RAG: ответ по базе знаний с цитатами
+## Полный стек (серверная часть + бот + Redis + Postgres)
 
 ```bash
-# Индекс строится один раз на старте (lifespan). Корпус — data/rag-block-03/.
-curl -s -X POST http://localhost:8000/rag/query \
-  -H "Content-Type: application/json" \
-  -d '{"question":"За сколько дней можно вернуть деньги за подписку?"}'
-# → {"answer":"...14 дней...","top_score":0.566,"sources":[{"text":...,"source":"billing_refunds.md","score":0.566}, ...]}
+cp .env.example .env
+# заполнить: LLM__OPENAI_API_KEY, BOT_TOKEN, BOT_ADMIN_IDS,
+# ADMIN_TOKEN и INTERNAL_TOKEN (openssl rand -hex 32), ADMIN_CHAT_ID
+docker compose up -d --build
+docker compose exec app alembic upgrade head   # включая 0003 — rag_queries + sources
 ```
-
-### Admin-API (нужен X-Admin-Token)
-
-```bash
-TOKEN="$(grep ^ADMIN_TOKEN= .env | cut -d= -f2)"
-
-curl -s -H "X-Admin-Token: $TOKEN" http://localhost:8000/chats/admin/stats
-curl -s -H "X-Admin-Token: $TOKEN" -X POST http://localhost:8000/chats/admin/broadcast \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Тех-работы в 02:00","interface":"telegram"}'
-curl -s -H "X-Admin-Token: $TOKEN" "http://localhost:8000/chats/admin/alerts"
-```
-
-### Bot-команды в Telegram
-
-- `/start` / `/help` / `/clear` / `/cancel` — базовые
-- `/ask` — wizard (FSM): выбор темы → вопрос → подтверждение
-- `/operator` — запрос на handoff (юзер ↔ оператор)
-- `/stats`, `/broadcast <текст>` — только для BOT_ADMIN_IDS
-- Под каждым ответом — feedback-кнопки (up/down), идут в backend через
-  POST `/chats/{id}/messages/{msg_id}/feedback`
-
-## Архитектурные решения
-
-- **Тонкий бот.** Bot не хранит истории/контекста — backend единственная
-  точка истины. Это позволит позже подключить web-чат и звонилку без
-  дублирования логики.
-- **SSE-контракт стабильный** (`{type:"token",delta:...}` / `{type:"message_saved",...}` / `{type:"done"}`).
-  Клиент пишется один раз, формат не меняется.
-- **Pull-модель алертов.** Backend пишет строку в `alerts` через `fire_alert(...)`,
-  бот раз в 10 секунд пуллит и шлёт в админ-чат. Без message broker'а — у нас
-  уже есть Postgres. Гарантия at-least-once через `acked_at`.
-- **Модерация → 403 ДО старта streaming.** `check_input` вызывается из route
-  handler'а, а не из SSE-генератора — иначе после старта `text/event-stream`
-  HTTPException не сменит 200-статус.
-- **Native multimodal.** Изображения уходят `image_url`-part'ом в основной
-  `chat.completions.create` без отдельного Vision-вызова; голос — Whisper-1.
-
-## Конфиг (см. `.env.example`)
-
-Все переменные с `__` — это nested секции pydantic-settings (`LLM__OPENAI_API_KEY`
-→ `Settings.llm.openai_api_key`).

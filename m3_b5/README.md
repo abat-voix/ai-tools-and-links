@@ -1,154 +1,161 @@
-## Что внутри
+# Чат-сервис на FastAPI — теперь в Docker
+
+Образцовая реализация для блока «Docker и контейнеризация». Это снимок **одного
+сквозного сервиса**: чат-ядро на FastAPI (`/chat`, `/chat/stream`, `/chat/batch`)
+с кешем в Redis. На этом шаге сервис упаковывается в контейнер — одной командой
+поднимается весь стек на чистой машине.
+
+## Что нового на этом чекпоинте
+
+Относительно предыдущего снимка (сервис жил только на локальной машине под
+`uvicorn --reload`) добавлена **контейнеризация**: образ собирается в две стадии,
+запускается под non-root пользователем, а `docker compose` поднимает сразу серверную
+часть и Redis с автоматической проверкой состояния и зависимостью по готовности.
+
+| Что добавилось | Файл | Зачем |
+|---|---|---|
+| Образ в две стадии | `Dockerfile` | сборка `builder` (зависимости через `uv`) + лёгкий `runtime` на `python:3.13-slim-bookworm` под non-root `appuser`; готовый образ ~190 MB |
+| Что не кладём в образ | `.dockerignore` | держит `.env`, `.git`, `tests/`, кеши вне образа — это и секреты, и размер |
+| Стек app + redis | `compose.yaml` | два сервиса: серверная часть и Redis 7.4; `depends_on: service_healthy`, общая сеть, Redis наружу не торчит |
+| Удобства разработки | `compose.override.yaml` | dev-надстройка: `--reload`, монтирование `./app` внутрь, проброс Redis на хост — подмешивается автоматически |
+| Готовность контейнера | `app/routers/health.py` | ручка `/ready` теперь отвечает 200/503 по состоянию Redis — на неё смотрит проверка состояния контейнера |
+
+Мелочи того же шага: `tests/test_health.py` приведён к новому контракту `/ready`
+(проверяет и 200, и 503), а в `app/core/config.py` починено имя приложения
+(`app_name` стал `llm-service`). Остальное чат-ядро с прошлого шага не менялось.
+
+## Куда смотреть
+
+Если интересна именно контейнеризация этого чекпоинта — начинать здесь:
 
 ```
-app/
-├── main.py              # FastAPI app + lifespan + middleware + exception handlers
-├── core/
-│   ├── config.py        # Settings (pydantic-settings v2, nested LLMSettings)
-│   └── exceptions.py    # LLMError + 4 подкласса
-├── deps/
-│   └── providers.py     # get_llm, get_cache, get_llm_service + Annotated aliases
-├── routers/
-│   ├── chat.py          # /chat, /chat/stream (SSE), /chat/batch
-│   ├── models.py        # /models — каталог с ценами
-│   └── health.py        # /health, /ready
-├── services/
-│   └── llm.py           # LLMService: complete, stream, кеш, retry, маппинг ошибок
-└── schemas/
-    ├── chat.py          # Message, ChatRequest, ChatResponse, Usage, ChatDelta,
-    │                    # OpenAIParams/OllamaParams (discriminated union)
-    └── models.py        # ModelInfo
-tests/
-├── conftest.py          # mock_llm, mock_cache, AsyncClient через ASGITransport
-├── test_chat.py         # 10 тестов: happy path, валидация, batch, кеш
-├── test_health.py       # /health, /ready (up/down)
-├── test_models.py       # /models
-└── test_stream.py       # SSE через client.stream + fake async-generator
+Dockerfile               # сборка в две стадии, non-root, exec-form CMD
+.dockerignore            # что не попадает в образ
+compose.yaml             # app + redis, проверки состояния, зависимость по готовности
+compose.override.yaml    # dev-надстройка (--reload, монтирование кода)
+app/routers/health.py    # /health (живость, всегда 200) и /ready (готовность, 200/503)
 ```
 
-## Запуск
+Карта всего сервиса:
 
-Нужен `uv` (`brew install uv` или `pip install uv`) и Python 3.12 (uv подтянет сам).
+```
+app/        серверная часть на FastAPI: routers/ (chat, models, health),
+            services/llm.py (вызовы LLM, кеш, retry), core/ (config, ошибки),
+            deps/ (типизированные провайдеры), schemas/ (Pydantic-модели)
+tests/      pytest + httpx.ASGITransport — без обращения к сети
+```
+
+## Как устроен образ
+
+`Dockerfile` собирается в две стадии. Стадия `builder` ставит зависимости через
+`uv sync --frozen --no-dev` с монтированием кеша и lock-файла — зависимости ставятся
+**до** копирования кода, поэтому при правке `app/` пересборка занимает пару секунд.
+Стадия `runtime` берёт из `builder` только готовое `/app` с виртуальным окружением,
+создаёт пользователя `appuser` (uid 1000) и переключается на него — процесс внутри
+контейнера работает не под root.
+
+В образе прописан `HEALTHCHECK`, который дёргает `/ready`: контейнер считается
+здоровым только когда серверная часть отвечает 200. `CMD` задан в exec-форме с
+`--host 0.0.0.0`, иначе `uvicorn` слушал бы только loopback контейнера.
+
+## Стек в compose
+
+`compose.yaml` поднимает два сервиса:
+
+- **`app`** — собирается из локального `Dockerfile`, публикует порт 8000, читает
+  `.env`, а адрес Redis получает через `environment: REDIS_URL=redis://redis:6379/0`.
+  Здесь `redis` — это DNS-имя сервиса во внутренней сети compose, **не** `localhost`.
+  Сервис стартует только после того, как Redis прошёл проверку
+  (`depends_on: { redis: { condition: service_healthy } }`).
+- **`redis`** — образ `redis:7.4-alpine` с явным тегом, данные в именованном томе
+  `redis_data`. Портов наружу нет: к Redis ходит только серверная часть по внутренней
+  сети.
+
+`compose.override.yaml` подмешивается автоматически при `docker compose up` в режиме
+разработки: добавляет `--reload`, монтирует `./app` внутрь контейнера (правки кода
+видны без пересборки) и пробрасывает порт Redis на хост, чтобы можно было
+подключиться `redis-cli`. В проде override не выкладывается — работает только
+`compose.yaml`.
+
+## Живость и готовность
+
+Две ручки проверки состояния различаются по смыслу:
+
+- **`/health`** — проверка живости, всегда `200 {"status":"ok"}`. Отвечает, пока жив
+  процесс, и не зависит от внешних сервисов: даже если Redis недоступен, ручка вернёт
+  200. Это нужно, чтобы оркестратор не убивал контейнер из-за временно лежащего Redis.
+- **`/ready`** — проверка готовности, делает `redis.ping()` с таймаутом 1.5 секунды:
+  - `200 {"status":"ok","redis":"up"}`, если Redis доступен;
+  - `503 {"status":"degraded","redis":"down"}`, если ping упал по таймауту или ошибке.
+
+На `/ready` смотрят и `HEALTHCHECK` в `Dockerfile`, и проверка состояния в
+`compose.yaml`: пока сервис не готов — контейнер не считается здоровым, и при будущем
+деплое на него не пойдёт трафик.
+
+## Быстрый старт
+
+Весь стек одной командой — нужен только установленный Docker:
+
+```bash
+cp .env.example .env                  # вписать LLM__OPENAI_API_KEY для боевых вызовов
+docker compose up -d --build
+docker compose ps                     # оба сервиса healthy через ~15 секунд
+```
+
+Проверки:
+
+```bash
+curl -s http://localhost:8000/health  # 200 {"status":"ok"}
+curl -s http://localhost:8000/ready   # 200 {"status":"ok","redis":"up"}
+curl -s http://localhost:8000/docs    # Swagger открывается
+docker compose exec app id            # uid=1000(appuser) — процесс не под root
+docker compose exec redis redis-cli ping
+```
+
+Остановить:
+
+```bash
+docker compose down                   # остановить (данные Redis сохранятся в томе)
+docker compose down -v                # + удалить том redis_data
+```
+
+Если временно остановить Redis (`docker compose stop redis`), `/ready` начнёт
+отвечать 503, а `/health` останется 200.
+
+## Без Docker (для разработки)
+
+Тот же сервис можно поднять напрямую. Нужен [`uv`](https://docs.astral.sh/uv/)
+(`brew install uv` или `pip install uv`); Python 3.12+ `uv` поставит сам.
 
 ```bash
 uv sync
-cp .env.example .env       # подставить настоящий LLM__OPENAI_API_KEY для боевых вызовов
-
+cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Swagger: http://localhost:8000/docs
 ```
 
-- Swagger UI — http://localhost:8000/docs
-- ReDoc      — http://localhost:8000/redoc
-- OpenAPI    — http://localhost:8000/openapi.json
+Redis для локального запуска можно поднять отдельным контейнером
+(`docker compose up -d redis`) или без него — тогда `/ready` будет отдавать 503.
 
-Redis опционален: если на `REDIS_URL` никто не отвечает, lifespan ловит ошибку
-и поднимается без кеша (запись `Redis недоступен … — продолжаем без кеша`).
-`/health` всегда `200 {"status":"ok"}` (liveness, процесс жив).
-`/ready` отдаёт `200 {"status":"ok","redis":"up"}` либо `503 {"status":"degraded","redis":"down"}`.
+## Размер образа
 
-## Запуск через Docker (Б3.5)
+Multi-stage и slim-база сильно урезают образ. Ориентиры на 2026-05 (amd64):
 
-```bash
-cp .env.example .env
-docker compose up -d --build
-docker compose ps                    # оба сервиса healthy через ~15 сек
-curl -s http://localhost:8000/health  # 200 {"status":"ok"}
-curl -s http://localhost:8000/ready   # 200 {"status":"ok","redis":"up"}
-docker compose exec app id            # uid=1000(appuser) — non-root
-docker compose exec redis redis-cli ping
-docker compose down                   # остановить (данные redis сохранятся)
-docker compose down -v                # + удалить volume redis_data
-```
+| Подход | Размер |
+|---|---|
+| `python:3.13` + `COPY . .` + `pip` | ~1150 MB |
+| `python:3.13-slim-bookworm` + `pip` | ~220 MB |
+| slim + две стадии + `uv` (этот `Dockerfile`) | ~190 MB |
 
-`compose.override.yaml` подмерживается автоматически в dev: даёт `--reload`,
-bind-mount `./app:/app/app:ro` и проброс `redis:6379` на хост для `redis-cli`.
-В проде override не выкладывается — работает только `compose.yaml`.
-
-Замеры на 2026-05 (amd64, полный production-stack):
-
-| Этап                                  | Размер  |
-|---------------------------------------|---------|
-| `python:3.13` + `COPY . .` + `pip`    | ~1150 MB |
-| `python:3.13-slim-bookworm` + `pip`   | ~220 MB |
-| slim + multi-stage + `uv 0.11.x` (наш Dockerfile) | ~190 MB |
-| Первая сборка `--no-cache`            | ~50 сек |
-| Rebuild после правки `app/`           | 2–3 сек |
+Если образ внезапно ~800 MB — скорее всего в него попал `.venv` или забыт
+`.dockerignore`.
 
 ## Тесты
 
 ```bash
-uv run pytest -v
+uv run pytest -q
 ```
 
-Все тесты используют `httpx.AsyncClient` + `ASGITransport` + `dependency_overrides`,
-никуда не ходят по сети — `OPENAI_API_KEY` для прогона тестов не нужен.
-
-Ожидаемый вывод: `16 passed`.
-
-## Примеры HTTP-вызовов
-
-### Синхронный чат
-
-```bash
-curl -s -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "Ты лаконичный ассистент."},
-      {"role": "user",   "content": "Скажи привет одним словом."}
-    ],
-    "model": "gpt-4o-mini",
-    "temperature": 0.2,
-    "max_tokens": 50
-  }'
-```
-
-В ответе клиент получает `X-Request-ID` и `X-LLM-Cost-USD` в заголовках.
-
-### Streaming через SSE
-
-```bash
-curl -N -X POST http://localhost:8000/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"считай до 5"}]}'
-```
-
-Поток событий: `data: {"content":"..."}\n\n` … `data: {"usage":{...}}\n\n` … `data: [DONE]`.
-
-### Batch
-
-```bash
-curl -s -X POST http://localhost:8000/chat/batch \
-  -H "Content-Type: application/json" \
-  -d '[
-    {"messages":[{"role":"user","content":"1+1"}]},
-    {"messages":[{"role":"user","content":"2+2"}]}
-  ]'
-```
-
-Возвращает `list[ChatResponse | {"error": ..., "detail": ...}]` — упавшие элементы
-не ломают весь батч. Максимум 20 элементов, иначе 413.
-
-### Каталог моделей / health
-
-```bash
-curl -s http://localhost:8000/models
-curl -s http://localhost:8000/health
-curl -s http://localhost:8000/ready
-```
-
-## Конфиг
-
-Переменные окружения (см. `.env.example`). Префиксы вложенных секций — через `__`:
-
-| Переменная                  | Значение по умолчанию  |
-|-----------------------------|------------------------|
-| `APP_NAME`                  | `llm-service`          |
-| `DEBUG`                     | `false`                |
-| `CORS_ORIGINS`              | `["*"]`                |
-| `REDIS_URL`                 | `redis://localhost:6379/0` |
-| `CACHE_TTL_SECONDS`         | `3600`                 |
-| `LLM__OPENAI_API_KEY`       | — (обязательна для боевых вызовов) |
-| `LLM__DEFAULT_MODEL`        | `gpt-4o-mini`          |
-| `LLM__REQUEST_TIMEOUT`      | `30.0`                 |
-| `LLM__MAX_RETRIES`          | `3`                    |
+Все тесты идут через `httpx.AsyncClient` + `ASGITransport` без обращения к сети —
+`OPENAI_API_KEY` для прогона не нужен. `test_health.py` проверяет оба исхода `/ready`
+(200 при живом Redis и 503 при упавшем `ping`).

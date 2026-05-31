@@ -1,116 +1,158 @@
-# llm-service + Telegram-бот
+# Production чат-сервис + Telegram-бот
 
-Чат-сервис (FastAPI + Postgres) + тонкий Telegram-бот, который рендерит SSE-поток.
-К чат-ядру (Б3.x) добавлены: персистентная история, native multimodal (image/voice/PDF/DOCX),
-streaming через `sendMessageDraft`, модерация, rate-limit, admin-API, алерты, handoff.
+Образцовая реализация для блока «Чат-боты и конверсационные интерфейсы». Это
+снимок **одного сквозного сервиса**, который растёт от чекпоинта к чекпоинту. На
+прошлом шаге это был FastAPI-сервис для LLM (кеш, потоковая выдача, обработка
+ошибок) — без истории диалога и без бота. На этом шаге сервис превращается в
+полноценный чат-продукт: персистентная история в Postgres, тонкий Telegram-бот
+на aiogram и вся production-обвязка вокруг диалога.
 
-## Что внутри
+## Что нового на этом чекпоинте
+
+Это граница модуля — самый большой скачок в проекте. Добавились сразу несколько
+крупных кусков: доменное чат-ядро с историей, Telegram-бот, модерация, лимит
+запросов, админ-API с рассылками, оповещения операторам и миграции базы.
+
+| Что добавилось | Каталог / файл | Зачем |
+|---|---|---|
+| Чат-ядро с историей | `app/chat/` | домен на Pydantic, репозитории Postgres/JSON, выбор системного промпта (A/B), приём изображений/голоса/документов, потоковая выдача через SSE |
+| Telegram-бот | `bot/` | тонкий клиент на aiogram 3.x: своей истории не хранит, рендерит SSE-поток сервера; команды, сценарий-мастер, медиа, оценки ответов |
+| Модерация | `app/moderation/` | каскад из двух слоёв: локальный regex-список и OpenAI Moderation; блокировка ввода до старта потока |
+| Лимит запросов | `app/ratelimit/` | счётчик «N сообщений в минуту» на пользователя — атомарный UPSERT в Postgres, при превышении 429 с `Retry-After` |
+| Админ-API и рассылки | `app/admin/`, `app/services/broadcaster.py` | статистика за окно, экспорт истории с маскированием персональных данных, рассылка по интерфейсу, пауза диалога; защита заголовком `X-Admin-Token` |
+| Оповещения операторам | `app/services/{alerter,notifier,handoff}.py` | очередь оповещений в Postgres; передача диалога оператору; сервер пишет строку, бот её забирает и шлёт в админ-чат |
+| Миграции базы | `migrations/`, `alembic.ini` | alembic-схема: чаты, сообщения, лимиты, оценки, системные промпты, оповещения, рассылки |
+
+Базовый вызов модели (`app/services/llm.py`) и ручки `/health` / `/ready` по сути
+те же — добавилось всё вокруг диалога.
+
+## Куда смотреть
+
+Если интересен именно этот чекпоинт — начинать здесь:
 
 ```
-app/                            # FastAPI backend
-├── main.py                     # lifespan (LLM/Redis/Postgres), middleware, exception map
-├── core/config.py              # Settings (pydantic-settings v2, nested LLMSettings)
-├── deps/providers.py           # SessionFactoryDep, LLMDep, CacheDep, LLMServiceDep
-├── routers/
-│   ├── chat.py                 # /chat, /chat/stream (SSE), /chat/batch
-│   ├── models.py               # /models — каталог с ценами
-│   └── health.py               # /health, /ready
-├── services/
-│   ├── llm.py                  # LLMService: complete/stream, кеш, retry, mapping
-│   ├── broadcaster.py          # admin → bot:9000/notify, fan-out с throttle
-│   ├── notifier.py             # одиночный notify через bot /notify
-│   ├── alerter.py              # alerts: fire / fetch / ack (БД-очередь)
-│   └── handoff.py              # set_handoff_status_by_owner
-├── chat/                       # доменная логика chat-сервиса
-│   ├── domain.py               # Chat / ChatMessage (Pydantic + UUID)
-│   ├── repository.py           # Protocol ChatRepository
-│   ├── repositories/
-│   │   ├── json_repo.py        # JSONL append-only
-│   │   ├── pg_models.py        # SQLAlchemy table defs (chats / chat_messages)
-│   │   └── pg_repo.py          # Postgres backend
-│   ├── prompts/                # SystemPromptRepository + A/B traffic split
-│   ├── service.py              # ChatService: send_message (SSE), check_input, A/B
-│   ├── media.py                # image/voice/PDF/DOCX → OpenAI content-part
-│   ├── deps.py                 # ChatServiceDep, RepositoryDep
-│   └── routes.py               # /chats, /chats/{id}/messages (SSE), feedback
-├── admin/
-│   ├── routes.py               # /chats/admin/* (защита X-Admin-Token)
-│   ├── repository.py           # AdminRepository: stats / export / owner_ids by interface
-│   └── schemas.py              # StatsOut, BroadcastIn, ExportResult, AlertOut...
-├── moderation/                 # двухслойный каскад (regex + OpenAI Moderation)
-├── ratelimit/                  # token-bucket per owner_external_id (Postgres UPSERT)
-├── observability/pii.py        # маскирование PII при экспорте
-└── schemas/                    # request/response модели для /chat
-bot/                            # Telegram-бот (aiogram 3.x)
-├── __main__.py                 # polling + uvicorn(/notify) + drain_alerts в одном loop
-├── config.py                   # BotSettings (pydantic-settings)
-├── handlers/
-│   ├── commands.py             # /start /help /clear /cancel
-│   ├── text.py                 # свободный текст → backend SSE
-│   ├── media.py                # фото / голос / документ
-│   ├── fsm.py                  # /ask — wizard через FSM
-│   ├── admin.py                # /stats, /broadcast — только для BOT_ADMIN_IDS
-│   ├── handoff.py              # /operator — запрос юзера на оператора
-│   └── feedback.py             # up/down callback под ответом
-├── keyboards/inline.py         # feedback-клавиатура
-├── services/
-│   ├── backend_client.py       # async-клиент к /chats/* + admin endpoint'ам
-│   ├── streaming.py            # SSE → sendMessageDraft, fallback на edit_text
-│   ├── typing.py               # «бот печатает...» до прихода первого токена
-│   ├── error_handling.py       # mapping httpx.HTTPStatusError → user-facing
-│   └── alert_drain.py          # фон-таска: backend /alerts → admin-чат
-├── states.py                   # AskFlow (FSM)
-└── web.py                      # FastAPI /notify (защита X-Internal-Token)
-migrations/                     # alembic
-├── env.py
-└── versions/
-    ├── 0001_chats.py           # chats + chat_messages
-    └── 0002_production.py      # rate_limits, feedback, prompts, alerts, broadcasts
-tests/                          # pytest-asyncio, httpx.ASGITransport, без сети
-├── conftest.py
-├── test_chat.py / test_stream.py / test_models.py / test_health.py
-├── test_admin.py / test_moderation.py / test_pii.py / test_prompts.py / test_ratelimit.py
-├── chat/                       # routes / service / repository-contract / media / moderation
-└── bot/                        # backend_client (MockTransport), fsm, web
+app/chat/service.py        # ChatService: история → контекст → LLM → сохранение, поток событий
+app/chat/routes.py         # POST /chats, /chats/{id}/messages (SSE), оценка ответа
+app/chat/domain.py         # Chat / ChatMessage / SystemPrompt — чистые Pydantic-модели
+app/moderation/service.py  # двухслойный каскад модерации (regex + OpenAI)
+app/ratelimit/service.py   # атомарный счётчик лимита через INSERT … ON CONFLICT
+app/admin/routes.py        # /chats/admin/* — статистика, экспорт, рассылка, пауза
+bot/__main__.py            # бот: long polling + сервер обратного канала + слив оповещений в одном цикле
+bot/handlers/text.py       # свободный текст пользователя → запрос к серверу → поток ответа
 ```
 
-## Запуск
+Карта всего сервиса:
 
-Нужен `uv` (`brew install uv` или `pip install uv`), Python 3.12+ (uv подтянет сам).
-
-### Локально (только backend, без бота)
-
-```bash
-uv sync
-cp .env.example .env       # подставить LLM__OPENAI_API_KEY для боевых вызовов
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+app/         серверная часть на FastAPI: chat/ (чат-ядро), routers/, services/,
+             moderation/ (regex + OpenAI), admin/, ratelimit/, observability/ (маскирование данных)
+bot/         тонкий Telegram-бот (aiogram 3.x); истории не хранит — единственный
+             источник правды это серверная часть
+migrations/  alembic (чаты, сообщения, лимиты, оценки, промпты, оповещения, рассылки)
+tests/       pytest-asyncio, httpx.ASGITransport — без обращения к сети
 ```
 
-- Swagger UI — http://localhost:8000/docs
-- OpenAPI    — http://localhost:8000/openapi.json
-- `/health`  — всегда 200 (liveness)
-- `/ready`   — 200/503 в зависимости от Redis
+## Как устроен путь сообщения
 
-Redis и Postgres опциональны для боевых вызовов: если их нет на старте,
-lifespan ловит ошибку и поднимается без них (кеш отключается, репозиторий
-переключается в `CHAT_REPOSITORY=json` режим).
+1. Бот получает текст или медиа, идемпотентно создаёт чат по
+   `(owner_external_id, interface)` и шлёт сообщение на сервер.
+2. Сервер сначала проверяет лимит запросов и модерацию — обе проверки идут
+   **до** старта потока, чтобы при блокировке вернуть 403/429 нормальным
+   HTTP-статусом, а не внутри уже открытого `text/event-stream`.
+3. `ChatService` сохраняет сообщение пользователя, собирает последние N реплик
+   как контекст, при наличии кандидатов выбирает системный промпт по A/B и
+   стримит ответ модели.
+4. Сервер отдаёт стабильный поток событий SSE; бот рендерит его в Telegram через
+   `sendMessageDraft` и по событию `message_saved` вешает кнопки оценки ответа.
 
-### Полный стек через Docker (backend + bot + redis + postgres)
+Контракт SSE неизменен — клиент пишется один раз:
+
+```
+data: {"type":"token","delta":"<кусок текста>"}
+data: {"type":"message_saved","message_id":"<uuid>"}
+data: {"type":"done"}
+```
+
+## Быстрый старт
+
+Нужен [`uv`](https://docs.astral.sh/uv/) (`brew install uv` или `pip install uv`);
+Python 3.12+ `uv` поставит сам. Бот работает только в полном стеке, поэтому
+основной способ запуска — Docker.
+
+### Полный стек через Docker (сервер + бот + Postgres + Redis)
 
 ```bash
 cp .env.example .env
-# Заполнить: LLM__OPENAI_API_KEY, BOT_TOKEN, BOT_ADMIN_IDS,
-# ADMIN_TOKEN (openssl rand -hex 32), INTERNAL_TOKEN (то же),
-# ADMIN_CHAT_ID (свой telegram user id для алертов в личку)
+# заполнить:
+#   LLM__OPENAI_API_KEY  — ключ OpenAI
+#   BOT_TOKEN            — токен бота от @BotFather
+#   BOT_ADMIN_IDS        — Telegram user id админов (через запятую)
+#   ADMIN_TOKEN          — openssl rand -hex 32 (общий для сервера и бота)
+#   INTERNAL_TOKEN       — openssl rand -hex 32 (обратный канал сервер → бот)
+#   ADMIN_CHAT_ID        — куда боту слать оповещения операторам
 
 docker compose up -d --build
-docker compose ps                     # все сервисы healthy через ~15 сек
-docker compose exec app alembic upgrade head   # накатить миграции
-docker compose logs -f bot            # увидеть «Bot starting ...»
+docker compose exec app alembic upgrade head   # накатить миграции базы
+docker compose logs -f bot                      # увидеть «Bot starting ...»
 ```
 
-`compose.override.yaml` подмерживается автоматически в dev: `--reload`,
-bind-mount `./app:/app/app:ro` и проброс `redis:6379` / `postgres:5432` на хост.
+`compose.override.yaml` в dev подмерживается автоматически: перезапуск по
+изменению кода, проброс `redis:6379` и `postgres:5432` на хост.
+
+### Только сервер, без бота
+
+```bash
+uv sync
+cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
+uv run uvicorn app.main:app --reload --port 8000
+# Swagger: http://localhost:8000/docs
+```
+
+Postgres и Redis опциональны для разработки: если их нет на старте, `lifespan`
+ловит ошибку и поднимается без них — кеш отключается, история переключается в
+файловый режим (`CHAT_REPOSITORY=json`), лимит и оценки в таком режиме недоступны.
+
+## Примеры вызовов
+
+### Создать чат и послать сообщение (SSE)
+
+```bash
+# идемпотентно по (owner_external_id, interface)
+curl -s -X POST http://localhost:8000/chats \
+  -H "Content-Type: application/json" \
+  -d '{"owner_external_id":"u-42","interface":"telegram"}'
+# → {"chat_id":"<uuid>"}
+
+curl -N -X POST "http://localhost:8000/chats/<uuid>/messages" \
+  -H "X-Owner-External-Id: u-42" \
+  -F content="Привет, расскажи о себе одним предложением"
+# data: {"type":"token","delta":"..."}
+# data: {"type":"message_saved","message_id":"<uuid>"}
+# data: {"type":"done"}
+```
+
+### Админ-API (нужен заголовок `X-Admin-Token`)
+
+```bash
+TOKEN="$(grep ^ADMIN_TOKEN= .env | cut -d= -f2)"
+
+curl -s -H "X-Admin-Token: $TOKEN" http://localhost:8000/chats/admin/stats
+
+curl -s -H "X-Admin-Token: $TOKEN" -X POST http://localhost:8000/chats/admin/broadcast \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Тех-работы в 02:00","interface":"telegram"}'
+
+curl -s -H "X-Admin-Token: $TOKEN" http://localhost:8000/chats/admin/alerts
+```
+
+### Команды бота в Telegram
+
+- `/start` / `/help` / `/clear` / `/cancel` — базовые
+- `/ask` — вопрос с выбором темы (сценарий-мастер)
+- `/operator` — запрос на передачу оператору
+- `/stats`, `/broadcast <текст>` — только для пользователей из `BOT_ADMIN_IDS`
+- под каждым ответом — кнопки оценки (палец вверх / вниз), уходят на сервер через
+  `POST /chats/{id}/messages/{msg_id}/feedback`
 
 ## Тесты
 
@@ -118,68 +160,30 @@ bind-mount `./app:/app/app:ro` и проброс `redis:6379` / `postgres:5432` 
 uv run pytest -q
 ```
 
-Все тесты используют `httpx.AsyncClient + ASGITransport` (для backend) и
-`httpx.MockTransport` (для bot-клиента) — сети нет, `OPENAI_API_KEY` для прогона
-не нужен. Ожидаемый вывод: `100 passed, 1 skipped`.
-
-## Примеры HTTP-вызовов
-
-### Создать чат / послать сообщение (SSE)
-
-```bash
-# 1. Идемпотентно создать чат (или получить существующий по owner+interface)
-curl -s -X POST http://localhost:8000/chats \
-  -H "Content-Type: application/json" \
-  -d '{"owner_external_id":"u-42","interface":"telegram"}'
-# → {"chat_id":"<uuid>"}
-
-# 2. Стримить ответ
-curl -N -X POST "http://localhost:8000/chats/<uuid>/messages" \
-  -H "X-Owner-External-Id: u-42" \
-  -F content="Привет, расскажи про себя одним предложением"
-# data: {"type":"token","delta":"..."}\n\n
-# data: {"type":"message_saved","message_id":"<uuid>"}\n\n
-# data: {"type":"done"}\n\n
-```
-
-### Admin-API (нужен X-Admin-Token)
-
-```bash
-TOKEN="$(grep ^ADMIN_TOKEN= .env | cut -d= -f2)"
-
-curl -s -H "X-Admin-Token: $TOKEN" http://localhost:8000/chats/admin/stats
-curl -s -H "X-Admin-Token: $TOKEN" -X POST http://localhost:8000/chats/admin/broadcast \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Тех-работы в 02:00","interface":"telegram"}'
-curl -s -H "X-Admin-Token: $TOKEN" "http://localhost:8000/chats/admin/alerts"
-```
-
-### Bot-команды в Telegram
-
-- `/start` / `/help` / `/clear` / `/cancel` — базовые
-- `/ask` — wizard (FSM): выбор темы → вопрос → подтверждение
-- `/operator` — запрос на handoff (юзер ↔ оператор)
-- `/stats`, `/broadcast <текст>` — только для BOT_ADMIN_IDS
-- Под каждым ответом — feedback-кнопки (up/down), идут в backend через
-  POST `/chats/{id}/messages/{msg_id}/feedback`
+Тесты идут без сети и без `OPENAI_API_KEY`: для сервера — `httpx.AsyncClient` с
+`ASGITransport`, для клиента бота — `httpx.MockTransport`. Часть тестов касается
+чат-ядра, модерации, лимита, маскирования персональных данных и сценариев бота.
 
 ## Архитектурные решения
 
-- **Тонкий бот.** Bot не хранит истории/контекста — backend единственная
-  точка истины. Это позволит позже подключить web-чат и звонилку без
-  дублирования логики.
-- **SSE-контракт стабильный** (`{type:"token",delta:...}` / `{type:"message_saved",...}` / `{type:"done"}`).
-  Клиент пишется один раз, формат не меняется.
-- **Pull-модель алертов.** Backend пишет строку в `alerts` через `fire_alert(...)`,
-  бот раз в 10 секунд пуллит и шлёт в админ-чат. Без message broker'а — у нас
-  уже есть Postgres. Гарантия at-least-once через `acked_at`.
-- **Модерация → 403 ДО старта streaming.** `check_input` вызывается из route
-  handler'а, а не из SSE-генератора — иначе после старта `text/event-stream`
-  HTTPException не сменит 200-статус.
-- **Native multimodal.** Изображения уходят `image_url`-part'ом в основной
-  `chat.completions.create` без отдельного Vision-вызова; голос — Whisper-1.
+- **Тонкий бот.** Бот не хранит историю и контекст — сервер единственная точка
+  истины. Это позволит позже подключить веб-чат без дублирования логики.
+- **Блокировки до старта потока.** Лимит запросов и модерация проверяются в
+  обработчике маршрута, а не внутри генератора потока: после старта
+  `text/event-stream` ответ уже летит как 200, и поменять статус на 403/429 уже
+  нельзя.
+- **Оповещения по модели «сервер пишет — бот забирает».** Сервер кладёт строку в
+  таблицу `alerts`, бот раз в несколько секунд её вычитывает и шлёт в админ-чат.
+  Отдельный брокер сообщений не нужен — Postgres уже есть; доставка
+  гарантируется отметкой `acked_at`.
+- **Лимит запросов — фиксированное окно в минуту.** Атомарный
+  `INSERT … ON CONFLICT DO UPDATE count+1` на ключ
+  `(owner_external_id, kind, bucket)`, где `bucket` — минута. Без блокировок и
+  гонок между воркерами.
+- **Приём медиа без отдельных вызовов.** Изображения уходят частью контента в
+  основной `chat.completions.create`, голос распознаётся через Whisper.
 
 ## Конфиг (см. `.env.example`)
 
-Все переменные с `__` — это nested секции pydantic-settings (`LLM__OPENAI_API_KEY`
-→ `Settings.llm.openai_api_key`).
+Переменные с `__` — это вложенные секции pydantic-settings:
+`LLM__OPENAI_API_KEY` → `Settings.llm.openai_api_key`.

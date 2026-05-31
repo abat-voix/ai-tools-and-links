@@ -1,82 +1,85 @@
-## Что внутри
+# LLM-сервис — FastAPI поверх облачного API
+
+Образцовая реализация для блока «Архитектура ИИ-приложений: FastAPI-сервис для LLM».
+Это снимок **одного сквозного сервиса**, который растёт от чекпоинта к чекпоинту.
+Здесь — самый первый его шаг в зеркале: чат-ядро на FastAPI, которое оборачивает
+асинхронного клиента OpenAI и выставляет его наружу как HTTP.
+
+## Что нового на этом чекпоинте
+
+До этого шага дипломный сервис жил как CLI-приложение поверх облачного API
+(модули 1–2 курса): тот же асинхронный клиент вызывался из командной строки.
+Здесь сервис **сменил форму** — из CLI стал веб-сервисом на FastAPI. Логика обращения
+к модели переехала в слой `app/services/llm.py`, а вокруг неё выросла серверная
+обвязка: ручки, внедрение зависимостей, кеш, единый формат ошибок.
+
+| Что добавилось | Файл | Зачем |
+|---|---|---|
+| HTTP-поверхность | `app/routers/chat.py` | `POST /chat` (синхронный ответ), `POST /chat/stream` (потоковая выдача через SSE), `POST /chat/batch` (до 20 запросов за раз) |
+| Слой работы с моделью | `app/services/llm.py` | `LLMService`: вызов OpenAI, кеш, повторные попытки на `tenacity`, перевод ошибок SDK в доменные исключения |
+| Внедрение зависимостей | `app/deps/providers.py` | клиент, кеш и сервис достаются из `app.state` через `Annotated`-провайдеры — без глобальных переменных |
+| Конфиг | `app/core/config.py` | `Settings` на pydantic-settings v2 с вложенной секцией `LLMSettings`; ключ читается как `SecretStr` |
+| Единый формат ошибок | `app/main.py` | `lifespan` поднимает клиента и кеш; обработчики переводят доменные исключения и ошибки валидации в аккуратный JSON и нужный HTTP-код |
+| Каталог и проверка живости | `app/routers/models.py`, `app/routers/health.py` | `GET /models` (цены, контекст), `GET /health` и `GET /ready` для проверки живости |
+
+Клиент OpenAI и подключение к кешу поднимаются один раз при старте приложения
+(`lifespan` в `app/main.py`), а ручки получают готовый `LLMService` через
+`LLMServiceDep`. Кеш необязателен: если на `REDIS_URL` никто не отвечает, `lifespan`
+ловит ошибку и сервис поднимается без кеша (пишет в лог `Redis недоступен … — продолжаем без кеша`),
+а `GET /ready` отдаёт `{"status":"degraded"}`.
+
+## Куда смотреть
+
+Главное на этом шаге — как один вызов модели обрастает production-обвязкой.
+Начинать здесь:
+
+```
+app/main.py             # сборка приложения: lifespan, middleware, обработчики ошибок
+app/services/llm.py     # LLMService: вызов модели, кеш, повторы, маппинг ошибок
+app/routers/chat.py     # POST /chat, /chat/stream (SSE), /chat/batch
+app/deps/providers.py   # внедрение зависимостей: клиент, кеш, сервис из app.state
+app/core/config.py      # Settings (pydantic-settings v2, вложенная LLMSettings)
+app/schemas/chat.py     # ChatRequest / ChatResponse / ChatDelta / Usage
+```
+
+Карта снимка:
 
 ```
 app/
-├── main.py              # FastAPI app + lifespan + middleware + exception handlers
+├── main.py             # FastAPI-приложение + lifespan + middleware + обработчики ошибок
 ├── core/
-│   ├── config.py        # Settings (pydantic-settings v2, nested LLMSettings)
-│   └── exceptions.py    # LLMError + 4 подкласса
-├── deps/
-│   └── providers.py     # get_llm, get_cache, get_llm_service + Annotated aliases
-├── routers/
-│   ├── chat.py          # /chat, /chat/stream (SSE), /chat/batch
-│   ├── models.py        # /models — каталог с ценами
-│   └── health.py        # /health, /ready
-├── services/
-│   └── llm.py           # LLMService: complete, stream, кеш, retry, маппинг ошибок
-└── schemas/
-    ├── chat.py          # Message, ChatRequest, ChatResponse, Usage, ChatDelta,
-    │                    # OpenAIParams/OllamaParams (discriminated union)
-    └── models.py        # ModelInfo
-tests/
-├── conftest.py          # mock_llm, mock_cache, AsyncClient через ASGITransport
-├── test_chat.py         # 10 тестов: happy path, валидация, batch, кеш
-├── test_health.py       # /health, /ready (up/down)
-├── test_models.py       # /models
-└── test_stream.py       # SSE через client.stream + fake async-generator
+│   ├── config.py       # Settings (вложенная LLMSettings, SecretStr)
+│   └── exceptions.py   # LLMError + подклассы (rate limit, auth, timeout, модерация)
+├── deps/providers.py   # провайдеры зависимостей + Annotated-алиасы
+├── routers/            # chat.py, models.py, health.py
+├── services/llm.py     # LLMService
+└── schemas/            # chat.py, models.py
+tests/                  # pytest + httpx.ASGITransport — без обращения к сети
 ```
 
-## Запуск
+## Быстрый старт
 
-Нужен `uv` (`brew install uv` или `pip install uv`) и Python 3.12 (uv подтянет сам).
+Нужен [`uv`](https://docs.astral.sh/uv/) (`brew install uv` или `pip install uv`);
+Python 3.12+ `uv` поставит сам.
 
 ```bash
 uv sync
-cp .env.example .env       # подставить настоящий LLM__OPENAI_API_KEY для боевых вызовов
+cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
 
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --port 8000
+# Swagger: http://localhost:8000/docs
 ```
 
-- Swagger UI — http://localhost:8000/docs
-- ReDoc      — http://localhost:8000/redoc
-- OpenAPI    — http://localhost:8000/openapi.json
-
-Redis опционален: если на `REDIS_URL` никто не отвечает, lifespan ловит ошибку
-и поднимается без кеша (запись `Redis недоступен … — продолжаем без кеша`).
-`/ready` в этом случае отдаёт `{"status":"degraded"}`.
-
-## Тесты
-
-```bash
-uv run pytest -v
-```
-
-Все тесты используют `httpx.AsyncClient` + `ASGITransport` + `dependency_overrides`,
-никуда не ходят по сети — `OPENAI_API_KEY` для прогона тестов не нужен.
-
-Ожидаемый вывод: `16 passed`.
-
-## Примеры HTTP-вызовов
-
-### Синхронный чат
+Проверить синхронный чат:
 
 ```bash
 curl -s -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "Ты лаконичный ассистент."},
-      {"role": "user",   "content": "Скажи привет одним словом."}
-    ],
-    "model": "gpt-4o-mini",
-    "temperature": 0.2,
-    "max_tokens": 50
-  }'
+  -d '{"messages":[{"role":"user","content":"Скажи привет одним словом."}]}'
+# → {"content":"Привет","model":"gpt-4o-mini","usage":{...},"cached":false, ...}
 ```
 
-В ответе клиент получает `X-Request-ID` и `X-LLM-Cost-USD` в заголовках.
-
-### Streaming через SSE
+Потоковая выдача через SSE приходит кусками `data: {...}\n\n`, в конце — `data: [DONE]`:
 
 ```bash
 curl -N -X POST http://localhost:8000/chat/stream \
@@ -84,42 +87,35 @@ curl -N -X POST http://localhost:8000/chat/stream \
   -d '{"messages":[{"role":"user","content":"считай до 5"}]}'
 ```
 
-Поток событий: `data: {"content":"..."}\n\n` … `data: {"usage":{...}}\n\n` … `data: [DONE]`.
+В ответ каждый запрос получает заголовок `X-Request-ID` для сквозной трассировки.
 
-### Batch
-
-```bash
-curl -s -X POST http://localhost:8000/chat/batch \
-  -H "Content-Type: application/json" \
-  -d '[
-    {"messages":[{"role":"user","content":"1+1"}]},
-    {"messages":[{"role":"user","content":"2+2"}]}
-  ]'
-```
-
-Возвращает `list[ChatResponse | {"error": ..., "detail": ...}]` — упавшие элементы
-не ломают весь батч. Максимум 20 элементов, иначе 413.
-
-### Каталог моделей / health
-
-```bash
-curl -s http://localhost:8000/models
-curl -s http://localhost:8000/health
-curl -s http://localhost:8000/ready
-```
+Кеш срабатывает только для детерминированных запросов: `LLMService.complete`
+обращается к нему при `temperature == 0` и при поднятом Redis. Повторный такой
+запрос возвращается с `cached: true` и заметно быстрее. При `temperature > 0`
+ответ всегда идёт от модели.
 
 ## Конфиг
 
-Переменные окружения (см. `.env.example`). Префиксы вложенных секций — через `__`:
+Переменные окружения (см. `.env.example`). Префикс вложенной секции — через `__`:
 
-| Переменная                  | Значение по умолчанию  |
-|-----------------------------|------------------------|
-| `APP_NAME`                  | `llm-service`          |
-| `DEBUG`                     | `false`                |
-| `CORS_ORIGINS`              | `["*"]`                |
-| `REDIS_URL`                 | `redis://localhost:6379/0` |
-| `CACHE_TTL_SECONDS`         | `3600`                 |
-| `LLM__OPENAI_API_KEY`       | — (обязательна для боевых вызовов) |
-| `LLM__DEFAULT_MODEL`        | `gpt-4o-mini`          |
-| `LLM__REQUEST_TIMEOUT`      | `30.0`                 |
-| `LLM__MAX_RETRIES`          | `3`                    |
+| Переменная | По умолчанию |
+|---|---|
+| `APP_NAME` | `llm-service-asdf` |
+| `DEBUG` | `false` |
+| `CORS_ORIGINS` | `["*"]` |
+| `REDIS_URL` | `redis://localhost:6379/0` |
+| `CACHE_TTL_SECONDS` | `3600` |
+| `LLM__OPENAI_API_KEY` | — (нужна для реальных вызовов) |
+| `LLM__DEFAULT_MODEL` | `gpt-4o-mini` |
+| `LLM__REQUEST_TIMEOUT` | `30.0` |
+| `LLM__MAX_RETRIES` | `3` |
+
+## Тесты
+
+```bash
+uv run pytest -q
+```
+
+Тесты идут без сети и без `OPENAI_API_KEY`: приложение поднимается через
+`httpx.ASGITransport`, а клиент OpenAI и кеш подменяются заглушками
+(`dependency_overrides`). Ожидаемый вывод: `16 passed`.

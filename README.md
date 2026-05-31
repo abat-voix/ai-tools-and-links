@@ -22,7 +22,7 @@
 
 Основной справочный файл с инструментами и ссылками находится здесь:
 
-- [tools_and_links.md](/Users/igor/develop/netology-ai-developer-main/ai-tools-and-links/tools_and_links.md)
+- [tools_and_links.md](tools_and_links.md)
 
 ### Что находится в корне
 
