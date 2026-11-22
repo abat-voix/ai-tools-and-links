@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Учебная таблица Б3.4 — единая цена записи",
+    "usage": {
+      "input_tokens": 12000,
+      "input_tokens_details": {"cached_tokens": 4000, "cache_write_tokens": 7000},
+      "output_tokens": 200
+    },
+    "prices_per_million": {
+      "input": "1", "cache_read": "0.1", "cache_write": "1.25", "output": "5"
+    },
+    "expected_total": "0.01115"
+  },
+  {
+    "name": "Те же 7000 записей — учебное распределение 30m и 12h",
+    "usage": {
+      "input_tokens": 12000,
+      "input_tokens_details": {
+        "cached_tokens": 4000,
+        "cache_write_tokens": 7000,
+        "cache_write_tokens_details": {"ttl_30m_tokens": 3000, "ttl_12h_tokens": 4000}
+      },
+      "output_tokens": 200,
+      "output_tokens_details": {"reasoning_tokens": 100}
+    },
+    "prices_per_million": {
+      "input": "1", "cache_read": "0.1",
+      "cache_write_30m": "1.25", "cache_write_12h": "2.5", "output": "5"
+    },
+    "expected_total": "0.01615"
+  }
+]
