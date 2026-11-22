@@ -61,11 +61,13 @@ async def main() -> None:
         settings.admin_chat_id,
     )
     try:
-        await asyncio.gather(
-            dp.start_polling(bot),
-            server.serve(),
-            drain_alerts(bot, backend, settings.admin_chat_id),
-        )
+        async with asyncio.TaskGroup() as tasks:
+            polling = tasks.create_task(dp.start_polling(bot, close_bot_session=False))
+            serving = tasks.create_task(server.serve())
+            alerts = tasks.create_task(drain_alerts(bot, backend, settings.admin_chat_id))
+            await polling
+            await serving
+            alerts.cancel()
     finally:
         await backend.aclose()
         await bot.session.close()

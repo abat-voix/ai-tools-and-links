@@ -21,7 +21,11 @@ def setup_tracing(settings: Settings) -> bool:
     """Регистрирует LlamaIndexInstrumentor → Phoenix. True, если трейсинг включён."""
     if not settings.phoenix_enabled:
         return False
-    if find_spec("openinference.instrumentation.llama_index") is None:
+    try:
+        instrumentor = find_spec("openinference.instrumentation.llama_index")
+    except ModuleNotFoundError:
+        instrumentor = None
+    if instrumentor is None:
         logger.warning(
             "phoenix_enabled=true, но пакеты трейсинга не установлены — "
             "uv sync --extra tracing"

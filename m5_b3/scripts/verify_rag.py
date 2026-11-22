@@ -5,36 +5,42 @@
 отмечено в выводе.
 
 Запуск:
-    uv run python scripts/verify_rag.py
+    QDRANT_URL=http://localhost:6333 uv run python scripts/verify_rag.py
 """
 
+import logging
 import sys
 import uuid
 from importlib.metadata import PackageNotFoundError, version
 from importlib.util import find_spec
 from pathlib import Path
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from llama_index.core import (  # noqa: E402
+from llama_index.core import (
     Settings,
     SimpleDirectoryReader,
     StorageContext,
     VectorStoreIndex,
 )
-from llama_index.core.ingestion import IngestionPipeline  # noqa: E402
-from llama_index.core.node_parser import SentenceSplitter  # noqa: E402
-from llama_index.core.vector_stores import (  # noqa: E402
+from llama_index.core.ingestion import IngestionPipeline
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.vector_stores import (
     FilterOperator,
     MetadataFilter,
     MetadataFilters,
 )
-from llama_index.embeddings.openai import OpenAIEmbedding  # noqa: E402
-from llama_index.llms.openai import OpenAI  # noqa: E402
-from llama_index.vector_stores.qdrant import QdrantVectorStore  # noqa: E402
-from qdrant_client import QdrantClient  # noqa: E402
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.llms.openai import OpenAI
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
-from app.core.config import get_settings  # noqa: E402
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 KEY = settings.llm.openai_api_key.get_secret_value()
@@ -57,7 +63,12 @@ def main() -> None:
             print(f"  {p}: NOT INSTALLED")
 
     _setup_models()
-    client = QdrantClient(url=settings.qdrant_url)
+    client = QdrantClient(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key.get_secret_value()
+        if settings.qdrant_api_key is not None
+        else None,
+    )
     suffix = uuid.uuid4().hex[:6]
     collections = []
 
@@ -157,8 +168,8 @@ def main() -> None:
         for c in collections:
             try:
                 client.delete_collection(c)
-            except Exception:
-                pass
+            except (httpx.HTTPError, ResponseHandlingException, UnexpectedResponse) as exc:
+                logger.warning("Не удалена коллекция %s: %s", c, type(exc).__name__)
         client.close()
 
 

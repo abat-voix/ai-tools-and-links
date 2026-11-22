@@ -53,13 +53,38 @@ tests/
 
 ## Быстрый старт
 
+При первом запуске скопируйте `.env.example` в `.env` и укажите
+`LLM__OPENAI_API_KEY`. Для оценки дополнительно настройте судью,
+например задайте `ANTHROPIC_API_KEY` для конфигурации по умолчанию.
+
+**Серверная часть на компьютере** с Redis и Qdrant в Docker.
+В `.env` оставьте `CHAT_REPOSITORY=json` либо подключите свой PostgreSQL.
+
 ```bash
-uv sync                              # базовые зависимости
-uv sync --extra eval --extra tracing # + оценка и трейсинг (по требованию)
-cp .env.example .env                 # подставить LLM__OPENAI_API_KEY, ANTHROPIC_API_KEY
-docker compose up -d                 # app + redis + postgres + qdrant + phoenix
-uv run uvicorn app.main:app --reload
+docker compose up -d redis qdrant
+uv sync --locked
+uv run --locked uvicorn app.main:app --reload
 ```
+
+Для локального трейсинга запустите сервисы так:
+
+```bash
+docker compose up -d redis qdrant phoenix
+PHOENIX_ENABLED=true uv run --locked --extra tracing uvicorn app.main:app --reload
+```
+
+**Полный стек в Docker.** Укажите `CHAT_REPOSITORY=postgres`,
+`BOT_TOKEN`, `BOT_ADMIN_IDS`, `ADMIN_CHAT_ID`, а также свои значения
+`ADMIN_TOKEN` и `INTERNAL_TOKEN` в `.env`.
+
+```bash
+docker compose up -d --build
+docker compose exec app alembic upgrade head
+```
+
+Для трейсинга в полном стеке укажите `PHOENIX_ENABLED=true` в `.env`
+и пересоберите образ той же командой. Оба варианта запуска используют
+порт 8000, выберите один.
 
 ## Проверить / тесты
 
@@ -71,5 +96,9 @@ uv run --extra eval --extra tracing python scripts/verify_eval.py
 uv run --extra eval python scripts/generate_testset.py --size 30
 uv run --extra eval python scripts/run_eval.py --golden tests/eval/golden_dataset.json --label baseline
 ```
+
+В `tests/eval/golden_dataset.json` три вычитанных вопроса по учебному корпусу.
+Они нужны для быстрой проверки конвейера. Для замеров по ДЗ подготовьте
+полный набор вопросов по своему корпусу.
 
 Студенческий README снимка m5_b6. Сервис один и тот же, растёт по чекпоинтам.

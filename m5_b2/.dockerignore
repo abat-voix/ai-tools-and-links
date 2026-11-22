@@ -38,7 +38,12 @@ docs/
 *.md
 !README.md
 notebooks/
-data/
+
+# Учебный набор данных. Остальные файлы данных исключены.
+data/*
+!data/sample_kb.jsonl
+**/uploads/
+**/docstore/
 
 # Docker
 Dockerfile

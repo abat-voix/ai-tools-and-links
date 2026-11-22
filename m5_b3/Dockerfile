@@ -32,6 +32,7 @@ RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app /app
+COPY --chown=appuser:appuser data/rag-block-03/ ./data/rag-block-03/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -33,7 +33,7 @@ dependencies = [
 # (PHOENIX_ENABLED=false). Ставится отдельно: `uv sync --extra tracing` или
 # `pip install '.[tracing]'`. Без него сервис работает, просто без спанов.
 tracing = [
-    "openinference-instrumentation-llama-index>=3,<4",
+    "openinference-instrumentation-llama-index>=4.7.6,<5",
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp>=1.20",
 ]

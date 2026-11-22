@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PHOENIX_ENABLED: "${PHOENIX_ENABLED:-false}"
     image: llm-service:dev
     container_name: llm-service
     restart: unless-stopped
@@ -55,6 +57,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PHOENIX_ENABLED: "${PHOENIX_ENABLED:-false}"
     image: llm-service:dev
     container_name: chat-bot
     restart: unless-stopped

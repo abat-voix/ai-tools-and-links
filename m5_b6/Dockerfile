@@ -21,8 +21,13 @@ COPY bot/ ./bot/
 COPY migrations/ ./migrations/
 COPY alembic.ini pyproject.toml uv.lock ./
 
+ARG PHOENIX_ENABLED=false
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    if [ "$PHOENIX_ENABLED" = "true" ]; then \
+        uv sync --frozen --no-dev --extra tracing; \
+    else \
+        uv sync --frozen --no-dev; \
+    fi
 
 # ========== STAGE 2: RUNTIME ==========
 FROM python:3.13-slim-bookworm
@@ -32,6 +37,7 @@ RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app /app
+COPY --chown=appuser:appuser data/rag-block-03/ ./data/rag-block-03/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -1,0 +1,12 @@
+{
+  "description": "Все координаты заданы вручную. Это геометрический пример, не результат embedding-модели.",
+  "documents": [
+    {"id": "refund_rules", "vector": [0.98, 0.2, 0.0]},
+    {"id": "payment_methods", "vector": [0.8, 0.6, 0.0]},
+    {"id": "password_reset", "vector": [0.0, 0.2, 0.98]}
+  ],
+  "queries": [
+    {"id": "refund_query", "vector": [1.0, 0.0, 0.0]},
+    {"id": "outside_example", "vector": [-1.0, 0.0, 0.0]}
+  ]
+}
