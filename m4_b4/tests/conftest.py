@@ -6,7 +6,7 @@ from app.deps.providers import get_cache, get_llm
 from app.main import app
 
 
-def _make_openai_response(content: str = "мок-ответ", model: str = "gpt-4o-mini"):
+def _make_openai_response(content: str = "мок-ответ", model: str = "gpt-6-luna"):
     return MagicMock(
         choices=[
             MagicMock(

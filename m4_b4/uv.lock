@@ -870,11 +870,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=23" },
-    { name = "aiogram", specifier = ">=3.10" },
+    { name = "aiogram", specifier = ">=3.28.2,<4" },
     { name = "alembic", specifier = ">=1.13" },
     { name = "asyncpg", specifier = ">=0.29" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.110" },
-    { name = "openai", specifier = ">=1.40" },
+    { name = "openai", specifier = ">=2.37,<3" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pydantic-settings", specifier = ">=2.2" },
     { name = "pypdf", specifier = ">=5.0" },

@@ -17,11 +17,7 @@ log = logging.getLogger(__name__)
 
 
 async def handle_backend_error(message: Message, exc: Exception) -> None:
-    """Универсальный handler. Отправляет короткое сообщение в чат и логирует.
-
-    Не пробрасывает исключение дальше — handler сам решил, что не справится,
-    мы лишь сообщаем пользователю.
-    """
+    """Показывает пользователю сообщение об отказе или сбое сервиса."""
     if isinstance(exc, httpx.ConnectError):
         await message.answer("Сервис недоступен, попробуйте позже.")
         return
@@ -32,24 +28,19 @@ async def handle_backend_error(message: Message, exc: Exception) -> None:
         status = exc.response.status_code
         if status == 403:
             try:
-                detail = exc.response.json().get("detail", {})
-                if isinstance(detail, dict) and detail.get("code") == "moderation_blocked":
-                    await message.answer(
-                        "🛑 Запрос нарушает правила сервиса. Попробуйте переформулировать."
-                    )
-                    return
-            except Exception:
-                pass
-            await message.answer("Доступ запрещён.")
+                body = exc.response.json()
+            except ValueError:
+                body = {}
+            detail = body.get("detail") if isinstance(body, dict) else None
+            blocked = isinstance(detail, dict) and detail.get("code") == "moderation_blocked"
+            await message.answer("Переформулируйте запрос." if blocked else "Доступ запрещён.")
             return
         if status == 429:
             retry = exc.response.headers.get("Retry-After", "60")
-            await message.answer(
-                f"🚦 Слишком много запросов. Подождите {retry} сек."
-            )
+            await message.answer(f"Слишком много запросов. Подождите {retry} сек.")
             return
         if 500 <= status < 600:
-            await message.answer("Внутренняя ошибка сервиса. Мы уже знаем.")
+            await message.answer("Сервис временно недоступен. Попробуйте позже.")
             return
         await message.answer("Не удалось обработать запрос.")
         return

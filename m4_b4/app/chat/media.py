@@ -2,8 +2,8 @@
 
 Native multimodal: изображения отдаются как `image_url`-part (data: base64
 URI) прямо в основной chat.completions.create — без отдельного Vision-вызова.
-Голос идёт через Whisper-1 (без FFmpeg, Whisper принимает ogg/m4a/mp3
-напрямую). PDF/DOCX — извлечение текста через pypdf / python-docx.
+Голос идёт через gpt-transcribe; Ogg/Opus нормализуется в WAV через FFmpeg.
+PDF/DOCX — извлечение текста через pypdf / python-docx.
 
 Замечание: для image-part `part["image_url"]["url"]` содержит полный base64
 изображения. Если этот dict сохраняется в `ChatMessage.media_refs.part`, он
@@ -12,7 +12,9 @@ URI) прямо в основной chat.completions.create — без отде�
 """
 
 import base64
+import asyncio
 from io import BytesIO
+from pathlib import Path
 
 from docx import Document
 from fastapi import UploadFile
@@ -29,7 +31,7 @@ async def media_to_part(
 
     Поддерживаемые типы:
     - `image/*` → image_url-part с data: base64 URI.
-    - `audio/*` (а также `application/ogg` — Telegram voice) → Whisper-1
+    - `audio/*` (а также `application/ogg` — Telegram voice) → gpt-transcribe
       транскрипт → text-part с пометкой '[пользователь сказал голосом]:'.
     - `application/pdf` → pypdf → text-part '[документ PDF]:'.
     - `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
@@ -49,7 +51,7 @@ async def media_to_part(
         }
 
     if mime.startswith("audio/") or mime == "application/ogg":
-        transcript = await whisper_transcribe(
+        transcript = await transcribe_audio(
             data, media.filename or "audio.ogg", llm_client,
         )
         return {
@@ -72,16 +74,42 @@ async def media_to_part(
     raise ValueError(f"Unsupported media type: {mime}")
 
 
-async def whisper_transcribe(
+async def transcribe_audio(
     audio_bytes: bytes, filename: str, llm_client: AsyncOpenAI,
 ) -> str:
-    """Whisper-1 принимает ogg/m4a/mp3/wav/flac/webm без конвертации."""
+    """Нормализует неподдерживаемый контейнер и распознаёт запись."""
+    supported = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm"}
+    if Path(filename).suffix.lower() not in supported:
+        audio_bytes = await convert_audio_to_wav(audio_bytes)
+        filename = "audio.wav"
+    if len(audio_bytes) > 25 * 1024 * 1024:
+        raise ValueError("Аудиозапись превышает лимит 25 МБ")
     f = BytesIO(audio_bytes)
-    f.name = filename  # OpenAI SDK ориентируется на расширение из .name
+    f.name = filename
     result = await llm_client.audio.transcriptions.create(
-        model="whisper-1", file=f,
+        model="gpt-transcribe", file=f,
     )
     return result.text
+
+
+async def convert_audio_to_wav(audio_bytes: bytes) -> bytes:
+    """Преобразует аудио в моно WAV 16 кГц без блокировки event loop."""
+    process = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-v", "error", "-i", "pipe:0", "-f", "wav",
+        "-ac", "1", "-ar", "16000", "pipe:1",
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        wav, _ = await asyncio.wait_for(process.communicate(audio_bytes), timeout=60)
+    except BaseException:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+        raise
+    if process.returncode != 0 or not wav:
+        raise ValueError("Не удалось декодировать аудиозапись")
+    return wav
 
 
 def extract_pdf_text(data: bytes, max_pages: int = 50) -> str:

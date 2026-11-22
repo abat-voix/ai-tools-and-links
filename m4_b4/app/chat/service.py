@@ -22,8 +22,10 @@ from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
 from app.chat.prompt_selection import choose_by_split
 from app.chat.repository import ChatRepository, SystemPromptRepository
+from app.core.exceptions import LLMContentFilterError, LLMError
 from app.moderation.domain import ModerationResult
 from app.moderation.service import ModerationService
+from app.services.request_options import completion_options
 
 logger = logging.getLogger("llm-service.chat")
 
@@ -34,7 +36,7 @@ class ChatService:
         repository: ChatRepository,
         llm_client,
         context_window: int = 10,
-        default_model: str = "gpt-4o-mini",
+        default_model: str = "gpt-6-luna",
         moderation: ModerationService | None = None,
         prompt_repo: SystemPromptRepository | None = None,
     ):
@@ -68,6 +70,7 @@ class ChatService:
         return await self.repository.get_or_create_chat(
             owner_external_id=owner_external_id,
             interface=interface,
+            system_prompt=system_prompt,
         )
 
     async def get_chat(self, chat_id: UUID) -> Chat | None:
@@ -221,44 +224,41 @@ class ChatService:
 
         # 6. Стримим
         buffer = ""
+        finish_reason = None
         stream = await self.llm_client.chat.completions.create(
             model=self.default_model,
             messages=messages,
             stream=True,
             stream_options={"include_usage": True},
+            **completion_options(self.default_model),
         )
 
         try:
             async for chunk in stream:
                 if not getattr(chunk, "choices", None):
                     continue
-                delta = chunk.choices[0].delta
+                choice = chunk.choices[0]
+                reason = getattr(choice, "finish_reason", None)
+                if isinstance(reason, str):
+                    finish_reason = reason
+                if finish_reason == "content_filter":
+                    raise LLMContentFilterError("Ответ заблокирован поставщиком модели")
+                delta = choice.delta
                 content = getattr(delta, "content", None)
                 if content:
                     buffer += content
                     yield {"type": "token", "delta": content}
         except Exception as exc:
             logger.warning(
-                "stream interrupted chat_id=%s err=%s saved_chars=%d",
+                "stream interrupted chat_id=%s err=%s received_chars=%d",
                 chat_id,
                 exc,
                 len(buffer),
             )
-            if buffer:
-                saved = await self.repository.append_message(
-                    chat_id,
-                    ChatMessage(
-                        chat_id=chat_id,
-                        role="assistant",
-                        content=buffer,
-                        prompt_id=prompt_id,
-                    ),
-                )
-                yield {
-                    "type": "message_saved",
-                    "message_id": str(saved.id),
-                }
             raise
+
+        if finish_reason != "stop" or not buffer.strip():
+            raise LLMError("Модель не вернула завершённый текстовый ответ")
 
         # 7. Успешное завершение — сохраняем накопленный ответ
         if buffer:

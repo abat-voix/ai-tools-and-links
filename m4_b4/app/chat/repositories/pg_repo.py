@@ -61,6 +61,7 @@ class PostgresChatRepository:
         self,
         owner_external_id: str,
         interface: str,
+        system_prompt: str | None = None,
     ) -> Chat:
         stmt = (
             select(ChatRow)
@@ -74,7 +75,7 @@ class PostgresChatRepository:
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is not None:
             return Chat.model_validate(row, from_attributes=True)
-        return await self.create_chat(owner_external_id, interface)
+        return await self.create_chat(owner_external_id, interface, system_prompt)
 
     async def append_message(
         self, chat_id: UUID, message: ChatMessage

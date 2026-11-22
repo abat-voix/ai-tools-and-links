@@ -15,10 +15,11 @@ SSE-контракт `POST /chats/{chat_id}/messages` (стабильный — 
 
 `message_saved` — кадр после сохранения assistant-сообщения в БД, нужен
 боту чтобы прицепить feedback-клавиатуру к финальному send_message.
-`done` всегда последний (и при ошибке — в finally).
+`done` завершает успешный ответ; при сбое отправляется `error` без `done`.
 """
 
 import json
+import logging
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -45,6 +46,8 @@ from app.ratelimit.dependencies import enforce_rate_limit
 # Wire-значения feedback. Те же строки на стороне бота (см.
 # bot/keyboards/inline.py::FEEDBACK_UP/FEEDBACK_DOWN). Общего модуля у
 # backend и bot нет — это контракт сети, поддерживается ручным синхроном.
+logger = logging.getLogger(__name__)
+
 FeedbackValue = Literal["up", "down"]
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -145,7 +148,10 @@ async def post_message(
                 # {"type":"token","delta":"..."} и
                 # {"type":"message_saved","message_id":"..."}.
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        finally:
+        except Exception:
+            logger.exception("chat stream failed chat_id=%s", chat_id)
+            yield 'data: {"type":"error","code":"generation_failed"}\n\n'
+        else:
             yield 'data: {"type":"done"}\n\n'
 
     return StreamingResponse(

@@ -10,7 +10,7 @@ class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LLM_")
 
     openai_api_key: SecretStr = SecretStr("sk-test-placeholder")
-    default_model: str = "gpt-4o-mini"
+    default_model: str = "gpt-6-luna"
     request_timeout: float = 30.0
     max_retries: int = 3
 
