@@ -17,7 +17,7 @@ from app.tools.naive_tools import DISPATCH, TOOLS
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "gpt-6-luna"
 _RESULT_PREVIEW_LEN = 200
 
 
@@ -28,13 +28,20 @@ def run_agent(
     client: OpenAI | None = None,
 ) -> dict:
     """Прогоняет наивный agent loop и возвращает ответ, число шагов и трассу."""
+    if max_steps < 1:
+        raise ValueError("max_steps должен быть положительным")
+    if model.startswith("gpt-6") and not model.startswith("gpt-6-luna"):
+        raise ValueError("Для этой модели с инструментами используйте Responses API (Б6.3)")
     client = client or OpenAI()
     messages: list = [{"role": "user", "content": task}]
     trace: list[dict] = []
 
     for step in range(max_steps):
         started = time.perf_counter()
-        response = client.chat.completions.create(model=model, messages=messages, tools=TOOLS)
+        options = {"reasoning_effort": "none"} if model.startswith("gpt-6-luna") else {}
+        response = client.chat.completions.create(
+            model=model, messages=messages, tools=TOOLS, **options
+        )
         duration_ms = round((time.perf_counter() - started) * 1000, 1)
 
         message = response.choices[0].message
@@ -45,6 +52,10 @@ def run_agent(
         output_tokens = usage.completion_tokens if usage else None
 
         if not message.tool_calls:
+            reason = response.choices[0].finish_reason
+            if reason != "stop" or not (message.content or "").strip():
+                return {"answer": None, "steps": step + 1, "trace": trace,
+                        "error": reason if reason != "stop" else "empty_response"}
             trace.append(
                 _trace_entry(
                     step, None, None, message.content, input_tokens, output_tokens, duration_ms

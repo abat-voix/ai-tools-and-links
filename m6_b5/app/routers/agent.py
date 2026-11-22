@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from pydantic import BaseModel
 
+from app.agents.supervisor import extract_final_answer
 from app.deps.providers import AgentGraphDep, SupervisorDep
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -61,7 +62,7 @@ def _to_response(result: dict, thread_id: str) -> AgentChatResponse:
     return AgentChatResponse(
         status="done",
         thread_id=thread_id,
-        answer=final.content or "",
+        answer=str(final.text),
         tool_results=result.get("tool_results", []),
     )
 
@@ -76,7 +77,7 @@ async def agent_chat(req: AgentChatRequest, graph: AgentGraphDep) -> AgentChatRe
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
-    decision: bool | str = True
+    decision: bool | str
 
 
 @router.post("/resume", response_model=AgentChatResponse)
@@ -104,7 +105,7 @@ def _format_event(stream_type: str, payload: Any) -> dict | None:
         return {"type": "update", "nodes": list(payload.keys())}
     if stream_type == "messages":
         chunk, _meta = payload
-        text = getattr(chunk, "content", "")
+        text = str(chunk.text)
         return {"type": "token", "text": text} if text else None
     return None
 
@@ -163,4 +164,4 @@ async def agent_research(
         {"messages": [HumanMessage(req.question)]},
         {"configurable": {"thread_id": req.thread_id}},
     )
-    return ResearchResponse(answer=result["messages"][-1].content or "")
+    return ResearchResponse(answer=extract_final_answer(result["messages"]))

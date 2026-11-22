@@ -27,11 +27,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ========== STAGE 2: RUNTIME ==========
 FROM python:3.13-slim-bookworm
 
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 1000 appuser
 
 WORKDIR /app
 
 COPY --from=builder --chown=appuser:appuser /app /app
+COPY --chown=appuser:appuser data/rag-block-03/ ./data/rag-block-03/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

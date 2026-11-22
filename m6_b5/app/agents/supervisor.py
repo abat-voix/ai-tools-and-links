@@ -16,9 +16,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, AnyMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.tools import build_search_knowledge_base
+
+WRITER_NAME = "writer"
 
 RESEARCHER_PROMPT = (
     "Ты исследователь. Найди факты по вопросу через инструмент "
@@ -69,3 +72,21 @@ def build_supervisor(
         output_mode="last_message",
     )
     return workflow.compile(checkpointer=checkpointer or InMemorySaver())
+
+
+def extract_final_answer(messages: list[AnyMessage]) -> str:
+    """Достаёт ответ writer'а из истории супервизора.
+
+    Последнее сообщение принадлежит супервизору и по промпту пустое: он только
+    делегирует. Ответ пользователю — последняя содержательная реплика writer'а,
+    служебное «Transferring back to supervisor» с tool_calls пропускается.
+    """
+    for message in reversed(messages):
+        if (
+            isinstance(message, AIMessage)
+            and message.name == WRITER_NAME
+            and not message.tool_calls
+            and message.content
+        ):
+            return str(message.text)
+    return ""

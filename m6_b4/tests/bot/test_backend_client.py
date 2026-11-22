@@ -14,6 +14,19 @@ from bot.services.backend_client import BackendClient
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tail", [b'data: {"type":"error","code":"generation_failed"}\n\n', b""])
+async def test_failed_or_unterminated_stream_is_not_success(tail):
+    body = b'data: {"type":"token","delta":"partial"}\n\n' + tail
+    transport = httpx.MockTransport(lambda _: httpx.Response(
+        200, content=body, headers={"Content-Type": "text/event-stream"},
+    ))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        client = BackendClient(http)
+        with pytest.raises(RuntimeError, match="stream"):
+            [event async for event in client.send_message(uuid4(), "hello")]
+
+
+@pytest.mark.asyncio
 async def test_get_or_create_chat():
     chat_id = uuid4()
 

@@ -10,7 +10,7 @@ class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LLM_")
 
     openai_api_key: SecretStr = SecretStr("sk-test-placeholder")
-    default_model: str = "gpt-5.4-mini"
+    default_model: str = "gpt-6-luna"
     request_timeout: float = 30.0
     max_retries: int = 3
 
@@ -65,7 +65,8 @@ class Settings(BaseSettings):
     rag_data_dir: Path = Path("data/rag-block-03")
     rag_collection: str = "rag_block_03"
     rag_collection_bare: str = "rag_block_03_bare"
-    rag_llm_model: str = "gpt-5.4-mini"
+    rag_llm_model: str = "gpt-6-luna"
+    rag_llm_context_window: int = 1_050_000
     rag_top_k: int = 3
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64
@@ -110,7 +111,7 @@ class Settings(BaseSettings):
     # production-LLM в /rag/query (rag_llm_model): роли разные, путать нельзя.
     anthropic_api_key: SecretStr | None = None
     eval_judge_provider: Literal["anthropic", "openai"] = "anthropic"
-    eval_judge_model: str = "claude-sonnet-4-6"
+    eval_judge_model: str = "claude-sonnet-5-5"
 
 
 @lru_cache

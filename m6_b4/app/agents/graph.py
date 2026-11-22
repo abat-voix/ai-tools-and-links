@@ -12,9 +12,11 @@
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
+
+from app.agents.model import validate_model_response
 
 from app.agents.state import AgentState
 
@@ -27,7 +29,7 @@ def build_custom_graph(model: BaseChatModel, tools: list[BaseTool]):
     tool_by_name = {t.name: t for t in tools}
 
     async def call_model(state: AgentState) -> dict:
-        response = await bound_model.ainvoke(state["messages"])
+        response = validate_model_response(await bound_model.ainvoke(state["messages"]))
         return {
             "messages": [response],
             "iteration_count": state["iteration_count"] + 1,
@@ -41,7 +43,10 @@ def build_custom_graph(model: BaseChatModel, tools: list[BaseTool]):
             if call["name"] not in tool_by_name:
                 content = f"error: unknown tool '{call['name']}'"
             else:
-                content = str(await tool_by_name[call["name"]].ainvoke(call["args"]))
+                try:
+                    content = str(await tool_by_name[call["name"]].ainvoke(call["args"]))
+                except Exception as exc:
+                    content = f"error: {type(exc).__name__}: {exc}"
             messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
             results.append(
                 {"name": call["name"], "args": call["args"], "result": content}
@@ -49,7 +54,16 @@ def build_custom_graph(model: BaseChatModel, tools: list[BaseTool]):
         return {"messages": messages, "tool_results": results}
 
     async def force_finish(state: AgentState) -> dict:
-        # Последний AIMessage уже в state — прокидываем его как финал.
+        last = state["messages"][-1]
+        calls = getattr(last, "tool_calls", None)
+        if calls:
+            replies = [ToolMessage(content="error: iteration limit", tool_call_id=c["id"])
+                       for c in calls]
+            return {"messages": [*replies, AIMessage(
+                content="Достигнут лимит шагов агента. Уточните или сократите задачу."
+            )]}
+        if not last.content:
+            return {"messages": [AIMessage(content="Модель не вернула текстовый ответ.")]}
         return {}
 
     def route_after_model(

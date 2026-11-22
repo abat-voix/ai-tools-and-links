@@ -15,11 +15,11 @@ def _encoder() -> tiktoken.Encoding:
 
 def count_tokens(
     messages: list[dict[str, Any] | ChatMessage],
-    model: str = "gpt-5.4-mini",
+    model: str = "gpt-6-luna",
 ) -> int:
-    """Считаем токены через o200k_base (GPT-4o / GPT-5).
+    """Оцениваем число токенов через o200k_base.
 
-    Поправки на ChatML overhead: +4 на каждое сообщение, +2 итого.
+    Поправки ChatML приблизительные; фактический расход берётся из API usage.
     """
     enc = _encoder()
     total = 0
@@ -32,7 +32,7 @@ def count_tokens(
 
 
 def fit_to_budget(
-    messages: list[ChatMessage], budget: int, model: str = "gpt-5.4-mini"
+    messages: list[ChatMessage], budget: int, model: str = "gpt-6-luna"
 ) -> list[ChatMessage]:
     """Режет messages с начала под бюджет, сохраняя ВСЕ system-сообщения.
 

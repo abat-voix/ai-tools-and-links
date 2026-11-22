@@ -31,6 +31,6 @@ async def agent_chat(req: AgentChatRequest, graph: AgentGraphDep) -> AgentChatRe
     )
     final = result["messages"][-1]
     return AgentChatResponse(
-        answer=final.content or "",
+        answer=str(final.text),
         tool_results=result.get("tool_results", []),
     )

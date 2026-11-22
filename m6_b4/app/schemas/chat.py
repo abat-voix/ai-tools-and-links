@@ -34,7 +34,7 @@ class ChatRequest(BaseModel):
                         {"role": "system", "content": "Ты полезный ассистент."},
                         {"role": "user", "content": "Напиши hello world на Python"},
                     ],
-                    "model": "gpt-5.4-mini",
+                    "model": "gpt-6-luna",
                     "temperature": 0.2,
                 }
             ]
@@ -42,7 +42,7 @@ class ChatRequest(BaseModel):
     )
 
     messages: Annotated[list[Message], Field(min_length=1, max_length=50)]
-    model: str = "gpt-5.4-mini"
+    model: str = "gpt-6-luna"
     temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.7
     max_tokens: Annotated[int, Field(ge=1, le=16_000)] = 1024
     stream: bool = False
@@ -81,7 +81,7 @@ class ChatDelta(BaseModel):
 
 class OpenAIParams(BaseModel):
     provider: Literal["openai"]
-    model: str = "gpt-5.4-mini"
+    model: str = "gpt-6-luna"
     seed: int | None = None
 
 

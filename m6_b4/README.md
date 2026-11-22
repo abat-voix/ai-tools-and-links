@@ -1,86 +1,101 @@
-# m6_b4 — Персистентный агент: чекпоинтер, человек в цикле, стриминг, трейсинг
+# Агент с сохранением состояния и подтверждением действия
 
-Тот же `llm-service`, что рос `m3_b4 → m4_b4 → m5_b2 → m5_b3 → m5_b5 → m5_b6 →
-m6_b3`, на чекпоинте продвинутых паттернов LangGraph. К ReAct-агенту из m6_b3
-добавлены: **персистентность** (чекпоинтер — состояние переживает рестарт),
-**человек в цикле** (`interrupt` / `Command(resume=...)`) на опасном действии,
-**SSE-стриминг** прогресса, демо путешествия во времени и **трейсинг агента** в
-Phoenix. Ядро RAG, чат и модерация — те же, что в m6_b3.
+Снимок продолжает одиночный граф из `m6_b3`. Добавлены чекпоинтер, пауза перед имитацией отправки письма, продолжение по решению человека и поток событий графа.
 
-## Что нового на этом чекпоинте
+## Что добавилось
 
-| Что добавилось | Файл | Зачем |
+| Часть | Файл | Назначение |
 |---|---|---|
-| Персистентный агент + HIL | `app/services/agent_persistent.py` | `build_agent(checkpointer, …)` + `agent_lifespan()` (переключатель backend); опасный `send_email` проходит через `prepare_email` → `confirm_and_send` (interrupt, реальная отправка только после resume; роль `full` пропускает подтверждение) |
-| Изоляция checkpoint-таблиц | `migrations/env.py` | `include_name` — Alembic `autogenerate` не трогает `checkpoint*` (их схему ведёт `setup()`) |
-| Подключение чекпоинтера | `app/main.py` | сборка агента через `AsyncExitStack` в `lifespan` — чекпоинтер держит соединение всё время работы, `setup()` один раз на старте |
-| Ручки агента | `app/routers/agent.py` | `/agent/chat` (распознаёт `interrupt`), `/agent/resume`, `/agent/stream` (SSE через `astream(stream_mode=["updates", "messages"])`) |
-| Трейсинг агента | `app/observability/tracing.py` | `LangChainInstrumentor` — узлы графа, вызовы инструментов и LLM попадают в спаны Phoenix (в дополнение к LlamaIndex для RAG) |
-| Демо time-travel | `scripts/time_travel_demo.py` | interrupt → история чек-пойнтов → чтение прошлого состояния → две ветки из одного входа |
-| Тесты | `tests/test_agent_persistent.py` | 4 теста на `AsyncSqliteSaver(":memory:")`: interrupt, approve, reject, роль `full` |
+| Состояние и подтверждение | `app/services/agent_persistent.py` | Подготовка письма, `interrupt`, продолжение, отдельное подтверждение каждого письма |
+| Жизненный цикл | `app/main.py` | Чекпоинтер остаётся открыт через `AsyncExitStack` |
+| HTTP-ручки | `app/routers/agent.py` | `/agent/chat`, `/agent/resume`, `/agent/stream` |
+| Исключение таблиц чекпоинтера | `migrations/env.py` | Alembic не управляет таблицами `checkpoint*` |
+| Разбор истории | `scripts/time_travel_demo.py` | Офлайн-пример двух решений с подставной моделью |
 
-Подключение: `AGENT_CHECKPOINTER` выбирает backend (`sqlite` локально, `postgres`
-в compose — чекпоинты ложатся в те же таблицы БД). Источник правды разговора —
-доменная таблица (`ChatMessageRow`, с модерацией и soft-delete), а чекпоинтер —
-операционная память прогона агента. `send_email` в референсе логирует отправку;
-реальную интеграцию (SMTP/API) подключают в `_send_email` в `lifespan`.
+Настройка `AGENT_CHECKPOINTER` выбирает `memory`, `sqlite` либо `postgres`. В `.env.example` выбран SQLite, путь — `AGENT_SQLITE_PATH=var/agent_checkpoints.sqlite`. Compose сам не переключает его на Postgres. Для сохранения состояния SQLite при пересоздании контейнера нужен постоянный том для этого пути. Для Postgres установить `AGENT_CHECKPOINTER=postgres`, затем перезапустить приложение. Схему чекпоинтера создаёт его `setup()`, доменные таблицы создаются миграциями Alembic.
 
-## Куда смотреть
+Текущая `_send_email` в `app/main.py` пишет событие в лог. Письма через SMTP или внешний API не отправляются. Сохранённое состояние графа и доменная история `/chats` имеют разные назначения и не синхронизируются автоматически.
 
-Главное в этом снимке — `app/services/agent_persistent.py` (HIL-поток и
-переключатель backend) и `migrations/env.py` (`include_name`). Ручки —
-`app/routers/agent.py`, подключение — `app/main.py` (`lifespan` + `AsyncExitStack`).
-Всё остальное — то же ядро RAG + агент, что в m6_b3.
+## Запуск
 
-## Карта сервиса (что выросло)
-
-```
-app/
-├── services/
-│   └── agent_persistent.py   # NEW: build_agent + agent_lifespan + HIL send_email
-├── routers/
-│   └── agent.py              # +/agent/resume, +/agent/stream (SSE)
-├── observability/
-│   └── tracing.py            # +LangChainInstrumentor (трейс графа/тулзов/LLM)
-├── core/config.py            # +agent_checkpointer / agent_sqlite_path
-└── main.py                   # чекпоинтер в lifespan (AsyncExitStack)
-migrations/
-└── env.py                    # +include_name (checkpoint* вне autogenerate)
-scripts/
-└── time_travel_demo.py       # NEW: демо путешествия во времени
-tests/
-└── test_agent_persistent.py  # NEW: HIL на sqlite in-memory
-```
-
-## Быстрый старт
+Команды выполняются из этого каталога. В `.env` задать `LLM__OPENAI_API_KEY`, `LLM__DEFAULT_MODEL=gpt-6-luna`, `RAG_LLM_MODEL=gpt-6-luna`. Заменить `ADMIN_TOKEN` и `INTERNAL_TOKEN` разными случайными значениями через `openssl rand -hex 32`. Для истории в базе задать `CHAT_REPOSITORY=postgres`. Настроить `POSTGRES_PASSWORD` и согласовать с ним `DATABASE_URL` для локальных команд.
 
 ```bash
-uv sync                              # + langgraph-checkpoint-sqlite/postgres, psycopg
-cp .env.example .env                 # LLM__OPENAI_API_KEY; в compose AGENT_CHECKPOINTER=postgres
-docker compose up -d                 # app + postgres + qdrant + redis
-uv run alembic upgrade head          # доменные таблицы (checkpoint* создаёт setup())
-uv run uvicorn app.main:app --reload
+cp .env.example .env
+uv sync --locked
+docker compose -f compose.yaml up -d redis postgres qdrant
+docker compose -f compose.yaml build app
+docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
+docker compose -f compose.yaml up -d app
+curl --fail http://localhost:8000/health
 ```
 
-Цикл «человек в цикле» через curl:
+Файл `.env` заполнить до запуска контейнеров. Флаг `-f compose.yaml` задаёт базовую конфигурацию без автоматического dev-override. Отдельно запущенный на хосте `uvicorn` занимает тот же порт 8000, поэтому одновременно с контейнером приложения его запускать не нужно.
+
+При старте приложение загружает корпус из `RAG_DATA_DIR` в `RAG_COLLECTION`. Это требует Qdrant и ключа для эмбеддингов. Сбой сборки RAG виден в логах, поиск тогда возвращает сообщение о недоступной базе. Доступность арифметического инструмента не подтверждает работу поиска.
 
 ```bash
-# 1) агент доходит до опасного действия и встаёт на подтверждение
-curl -X POST localhost:8000/agent/chat -H 'Content-Type: application/json' \
-  -d '{"message":"Вызови send_email: to=client@example.com, subject=Счёт, body=Ваш счёт","thread_id":"t1"}'
-# → {"status":"interrupted","interrupt":{"type":"approve_email","preview":{...}}}
-
-# 2) подтверждаем тем же thread_id → письмо уходит, граф завершается
-curl -X POST localhost:8000/agent/resume -H 'Content-Type: application/json' \
-  -d '{"thread_id":"t1","decision":true}'
+docker compose -f compose.yaml logs --tail 100 app
 ```
 
-## Проверить / тесты
+Telegram-бот включается отдельно после настройки `BOT_TOKEN`, `BOT_ADMIN_IDS`, числового `ADMIN_CHAT_ID` и общих секретов.
+
+```bash
+docker compose -f compose.yaml up -d bot
+```
+
+Бот обращается к `/chats`, а не к `/agent/chat`. Его история, окно последних сообщений, медиа и SSE продолжают обрабатываться чат-сервисом. Резюмирования истории этот снимок не добавляет. Создание engine Postgres не проверяет доступность самой базы и не включает автоматический переход на JSON. Администрирование и лимиты используют Postgres даже при `CHAT_REPOSITORY=json`.
+
+## Модели и окружение
+
+`app/agents/model.py` выбирает API для инструментов. С `gpt-6-luna` используется Chat Completions и `reasoning_effort="none"`. Для остальных моделей с префиксом `gpt-6` фабрика включает Responses API и параметр `reasoning`. Это настройки агентной модели, RAG-ответ и обычный чат используют собственные пути вызова.
+
+Для опциональных зависимостей предусмотрены группы.
+
+```bash
+uv sync --locked --extra tracing
+uv sync --locked --extra eval
+```
+
+Трейсинг включается через `PHOENIX_ENABLED=true`. Для приложения в Compose адрес сборщика уже задан как `http://phoenix:6006/v1/traces`. Чтобы увидеть трассы, запустить `docker compose -f compose.yaml up -d phoenix` и установить зависимости трейсинга в среду процесса приложения. Обычный Dockerfile ставит зависимости без extras, поэтому одна переменная не добавляет инструментаторы в контейнер.
+
+Оценка RAGAS использует отдельного судью из `EVAL_JUDGE_PROVIDER` и `EVAL_JUDGE_MODEL`, по примеру окружения — Anthropic. Для неё нужен `ANTHROPIC_API_KEY`. Эти настройки не заменяют `LLM__DEFAULT_MODEL` агента.
+
+`/ready` проверяет Redis. Работоспособность базы, агента и RAG подтверждается отдельными запросами и сообщениями старта. Ручки агента в этом примере не связывают пользователя с правом на `thread_id`. Для внешнего доступа потребуется авторизация этой связи.
+
+## Пауза и продолжение
+
+```bash
+curl --fail -X POST http://localhost:8000/agent/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Подготовь письмо client@example.test с темой Статус и текстом Заявка принята","thread_id":"approval-1"}'
+```
+
+Если модель выбрала `send_email`, ответ содержит `status: "interrupted"`, `thread_id` и `interrupt` с данными подготовленного письма. Нужно проверить содержимое перед решением. Модель может выбрать другой путь, поэтому пауза не гарантируется одним текстом запроса.
+
+```bash
+curl --fail -X POST http://localhost:8000/agent/resume \
+  -H 'Content-Type: application/json' \
+  -d '{"thread_id":"approval-1","decision":true}'
+```
+
+Для отмены передать `decision: false`. При нескольких письмах возможна следующая пауза, поэтому каждый ответ проверяется по `status`. Использовать уникальный `thread_id` для независимых диалогов, иначе состояние смешается. Роль `full` существует в фабрике графа, но текущие HTTP-ручки используют политику `write-with-approve` и не принимают роль из тела запроса.
+
+## Поток событий
+
+```bash
+curl -N -X POST http://localhost:8000/agent/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"thread_id":"stream-1","input":{"messages":[{"role":"user","content":"Умножь 17 на 23"}]}}'
+```
+
+Контракт этой ручки отличается от `/agent/chat`. Начало передаётся в `input`, продолжение — через `resume` с тем же `thread_id`. SSE содержит `type: "update"` с именами узлов, `type: "token"` с полем `text`, а на паузе — `type: "interrupt"` с `payload`. Финальное `type: "done"` завершает текущий поток также после паузы. Оно не подтверждает окончательное выполнение действия. Клиент обязан сохранить информацию об `interrupt` и запросить решение человека. При обрыве или исключении графа поток может закончиться без `done`.
+
+## Проверки
 
 ```bash
 uv run pytest -q
-# Демо: interrupt → история чек-пойнтов → две ветки из одного входа
 uv run python -m scripts.time_travel_demo
 ```
 
-Студенческий README снимка m6_b4. Сервис один и тот же, растёт по чекпоинтам.
+Демонстрация истории использует SQLite в памяти и подставную модель. Она выполняется без настоящего вызова модели и без отправки писем. Повтор с реальным внешним действием потребует отдельной защиты от повторного выполнения эффекта после сбоя.

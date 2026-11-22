@@ -65,6 +65,7 @@ class JsonChatRepository:
         self,
         owner_external_id: str,
         interface: str,
+        system_prompt: str | None = None,
     ) -> Chat:
         # O(N) скан — для учебного варианта норм.
         if self.base_dir.exists():
@@ -86,7 +87,7 @@ class JsonChatRepository:
                     and chat.interface == interface
                 ):
                     return chat
-        return await self.create_chat(owner_external_id, interface)
+        return await self.create_chat(owner_external_id, interface, system_prompt)
 
     async def append_message(
         self, chat_id: UUID, message: ChatMessage

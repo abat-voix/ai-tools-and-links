@@ -1,7 +1,7 @@
 [project]
 name = "llm-service"
 version = "0.1.0"
-description = "FastAPI-сервис для LLM: chat-история, стриминг, модерация, rate-limit, admin-API"
+description = "FastAPI и LangGraph: ReAct-агент с инструментами и RAG"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.110",
@@ -24,6 +24,7 @@ dependencies = [
     "qdrant-client>=1.14,<1.16",
     "tqdm>=4.66",
     "llama-index>=0.14.22",
+    "llama-index-llms-openai-like>=0.5,<1",
     "llama-index-vector-stores-qdrant>=0.8.8",
     "llama-index-readers-file>=0.6.0",
     "langgraph>=1.0,<2",
@@ -45,6 +46,7 @@ tracing = [
 # тянется ядром RAGAS; без верхней границы свежие 0.4.x ломают импорт vertexai.
 eval = [
     "ragas>=0.4,<0.5",
+    "instructor>=1.10,<2",
     "langchain-community<0.4",
     "anthropic>=0.40",
     "llama-index-llms-anthropic>=0.3",

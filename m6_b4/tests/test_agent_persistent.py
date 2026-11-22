@@ -121,3 +121,30 @@ async def test_role_full_skips_interrupt():
         assert "__interrupt__" not in result
         assert result["sent"] is True
         send_fn.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_mixed_calls_each_get_result_and_separate_approval():
+    from langchain_core.messages import ToolMessage
+
+    first = _send_email_call()
+    first.tool_calls.insert(0, {"name":"multiply", "args":{"a":2,"b":3},
+                               "id":"math", "type":"tool_call"})
+    first.tool_calls.append({"name":"send_email", "args":{
+        "to":"other@example.com", "subject":"Второе", "body":"Текст"},
+        "id":"call-2", "type":"tool_call"})
+    send_fn = AsyncMock()
+    async with AsyncSqliteSaver.from_conn_string(":memory:") as saver:
+        await saver.setup()
+        graph = build_agent(saver, FakeChat([first, AIMessage("Готово.")]), [multiply], send_fn)
+        config = {"configurable":{"thread_id":"mixed"}, "recursion_limit":40}
+        paused = await graph.ainvoke(_initial(), config)
+        assert "__interrupt__" in paused
+        send_fn.assert_not_called()
+        paused = await graph.ainvoke(Command(resume=True), config)
+        assert "__interrupt__" in paused
+        assert send_fn.await_count == 1
+        final = await graph.ainvoke(Command(resume=False), config)
+        assert send_fn.await_count == 1
+        replies = {m.tool_call_id for m in final["messages"] if isinstance(m, ToolMessage)}
+        assert replies == {"math", "call-1", "call-2"}

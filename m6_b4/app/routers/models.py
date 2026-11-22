@@ -6,19 +6,19 @@ from app.schemas.models import ModelInfo
 router = APIRouter(prefix="/models", tags=["models"])
 
 CATALOG: dict[str, ModelInfo] = {
-    "gpt-5.4-mini": ModelInfo(
-        id="gpt-5.4-mini",
+    "gpt-6-luna": ModelInfo(
+        id="gpt-6-luna",
         provider="openai",
-        input_per_1m=0.15,
-        output_per_1m=0.60,
-        context_window=128_000,
+        input_per_1m=0.10,
+        output_per_1m=0.50,
+        context_window=1_050_000,
     ),
-    "gpt-5.4": ModelInfo(
-        id="gpt-5.4",
+    "gpt-6.1-sol": ModelInfo(
+        id="gpt-6.1-sol",
         provider="openai",
-        input_per_1m=2.50,
+        input_per_1m=2.00,
         output_per_1m=10.00,
-        context_window=128_000,
+        context_window=1_050_000,
     ),
 }
 

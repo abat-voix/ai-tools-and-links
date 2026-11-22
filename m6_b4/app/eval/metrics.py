@@ -17,7 +17,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 from ragas.embeddings import OpenAIEmbeddings
-from ragas.llms import llm_factory
+import instructor
 from ragas.metrics import discrete_metric
 from ragas.metrics.collections import (
     AnswerRelevancy,
@@ -28,6 +28,7 @@ from ragas.metrics.collections import (
 )
 
 from app.core.config import Settings
+from app.eval.llm import ModelAwareJudge
 
 
 @dataclass
@@ -52,14 +53,16 @@ def build_judge(settings: Settings) -> tuple[Any, OpenAIEmbeddings]:
             if settings.anthropic_api_key is not None
             else None
         )
-        judge = llm_factory(
-            settings.eval_judge_model,
-            provider="anthropic",
-            client=AsyncAnthropic(api_key=api_key),
+        judge = ModelAwareJudge(
+            model=settings.eval_judge_model, provider="anthropic", max_tokens=4096,
+            client=instructor.from_anthropic(
+                AsyncAnthropic(api_key=api_key), mode=instructor.Mode.ANTHROPIC_JSON,
+            ),
         )
     else:
-        judge = llm_factory(
-            settings.eval_judge_model, provider="openai", client=openai_client
+        judge = ModelAwareJudge(
+            model=settings.eval_judge_model, provider="openai", max_tokens=4096,
+            client=instructor.from_openai(openai_client, mode=instructor.Mode.JSON),
         )
     return judge, embeddings
 

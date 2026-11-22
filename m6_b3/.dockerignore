@@ -38,7 +38,23 @@ docs/
 *.md
 !README.md
 notebooks/
-data/
+
+# Учебный набор данных. Остальные файлы данных исключены.
+data/*
+!data/rag-block-03/
+data/rag-block-03/**
+!data/rag-block-03/api_rate_limits.md
+!data/rag-block-03/billing_payment_methods.md
+!data/rag-block-03/billing_refunds.md
+!data/rag-block-03/integrations_slack.md
+!data/rag-block-03/offtopic_borscht.md
+!data/rag-block-03/onboarding_roles.md
+!data/rag-block-03/onboarding_workspace.md
+!data/rag-block-03/security_2fa.md
+!data/rag-block-03/security_data_storage.md
+!data/rag-block-03/support_password_reset.md
+**/uploads/
+**/docstore/
 
 # Docker
 Dockerfile

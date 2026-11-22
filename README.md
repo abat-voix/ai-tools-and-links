@@ -84,3 +84,5 @@
 - [Документация Transformers](https://huggingface.co/docs/transformers) — основная библиотека для работы с моделями.
 - [Документация huggingface_hub](https://huggingface.co/docs/huggingface_hub) — Python-библиотека для загрузки моделей, датасетов и взаимодействия с API.
 - [Inference API](https://huggingface.co/docs/api-inference) — бесплатный serverless API для быстрого тестирования моделей.
+
+[Учебные примеры для модулей 3–6](course-examples.md)

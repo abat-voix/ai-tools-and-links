@@ -22,6 +22,7 @@ class ChatRepository(Protocol):
         self,
         owner_external_id: str,
         interface: str,
+        system_prompt: str | None = None,
     ) -> Chat: ...
 
     async def append_message(

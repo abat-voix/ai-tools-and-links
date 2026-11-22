@@ -1,82 +1,81 @@
-# m6_b3 — Агентный слой на LangGraph поверх RAG
+# Агентный граф поверх RAG
 
-Тот же `llm-service`, что рос `m3_b4 → m4_b4 → m5_b2 → m5_b3 → m5_b5 → m5_b6`,
-на чекпоинте агентов. К RAG-сервису из m5_b6 добавлен **агентный слой на
-LangGraph 1.0**: ReAct-граф, собранный вручную из `StateGraph`, с инструментами —
-калькулятор и поиск по базе знаний (тот самый RAG, обёрнутый в инструмент
-агента). Ядро RAG, чат, модерация и персистентность — те же, что в m5_b6.
+Снимок продолжает сервис с чатами и поиском по документам. Добавлен агент на LangGraph с инструментами умножения и поиска. Граф собирается при старте и доступен через отдельную HTTP-ручку.
 
-## Что нового на этом чекпоинте
+## Что добавилось
 
-| Что добавилось | Файл | Зачем |
+| Часть | Файл | Назначение |
 |---|---|---|
-| Состояние агента | `app/agents/state.py` | `AgentState`: история сообщений (редьюсер `add_messages`), счётчик итераций, накопленные результаты инструментов (`operator.add`) |
-| Инструменты | `app/agents/tools.py` | `multiply` через `@tool` + фабрика `build_search_knowledge_base(search_fn)` — оборачивает RAG-сервис в инструмент агента, форматирует ответ с источниками |
-| Сборка графа | `app/agents/graph.py` | `build_custom_graph` — `StateGraph` вручную (узлы `call_model` / `execute_tool` / `force_finish`, маршрутизатор, лимит 6 итераций); `build_prebuilt_graph` — тот же агент через `create_agent` из `langchain.agents` |
-| Ручка агента | `app/routers/agent.py` | `POST /agent/chat` с телом `{message}` → `{answer, tool_results}` |
-| Провайдер графа | `app/deps/providers.py` | `get_agent_graph` / `AgentGraphDep` — типизированный доступ к собранному графу из ручки |
-| Визуализация | `scripts/visualize_graph.py` | `draw_mermaid()` кастомного графа → `docs/agent-graph-custom.mmd` (открывается в mermaid.live) |
-| Тесты | `tests/test_agent_graph.py` | Цикл ReAct, лимит итераций (`force_finish`), неизвестный инструмент без падения, RAG-инструмент — на фейках, без сети |
+| Состояние | `app/agents/state.py` | Сообщения, число итераций, результаты инструментов |
+| Граф | `app/agents/graph.py` | Узлы вызова модели, выполнения инструментов и завершения по бюджету |
+| Инструменты | `app/agents/tools.py` | `multiply` и `build_search_knowledge_base` поверх `RAGService.answer` |
+| Выбор API модели | `app/agents/model.py` | Совместимые настройки модели и проверка завершённости ответа |
+| HTTP-контракт | `app/routers/agent.py` | `POST /agent/chat` с `message`, ответ с `answer` и `tool_results` |
 
-Подключение: при старте приложения (`lifespan`) собирается модель
-`ChatOpenAI(default_model)` и список инструментов `[multiply,
-build_search_knowledge_base(...)]`, где поиск по базе знаний вызывает
-RAG-сервис (`rag_service.answer`) и мягко деградирует, если RAG недоступен.
-`build_custom_graph` компилирует граф в `app.state.agent_graph`, ручка
-`/agent/chat` достаёт его через `AgentGraphDep`. Модель по умолчанию —
-`gpt-5.4-mini`.
+`app/main.py` создаёт модель и передаёт графу список инструментов. `app/deps/providers.py` возвращает собранный граф через типизированную зависимость. `search_knowledge_base` возвращает ответ RAG с источниками, а не один необработанный фрагмент. `build_prebuilt_graph` показывает альтернативную сборку через `langchain.agents.create_agent`.
 
-## Куда смотреть
+## Запуск
 
-Главное в этом снимке — `app/agents/graph.py` (обе сборки: вручную и через
-`create_agent`) и `app/agents/tools.py` (RAG, обёрнутый в инструмент агента).
-Ручка — `app/routers/agent.py`, подключение — `app/main.py` (`lifespan`). Всё
-остальное — то же ядро RAG, что в m5_b6.
-
-## Карта сервиса (что выросло)
-
-```
-app/
-├── agents/                 # NEW: агентный слой LangGraph
-│   ├── state.py            #   AgentState — messages(+add_messages) + счётчики
-│   ├── tools.py            #   multiply (@tool) + build_search_knowledge_base — RAG как инструмент
-│   └── graph.py            #   build_custom_graph (StateGraph вручную) + build_prebuilt_graph (create_agent)
-├── routers/
-│   └── agent.py            # NEW: POST /agent/chat — прогон графа по одному сообщению
-├── deps/providers.py       # +get_agent_graph / AgentGraphDep
-└── main.py                 # lifespan: сборка графа с инструментами → app.state.agent_graph
-scripts/
-└── visualize_graph.py      # NEW: draw_mermaid() → docs/agent-graph-custom.mmd
-docs/
-└── agent-graph-custom.mmd  # NEW: схема кастомного графа
-tests/
-└── test_agent_graph.py     # NEW: 4 теста на фейках
-```
-
-## Быстрый старт
+Команды выполняются из этого каталога. В `.env` задать `LLM__OPENAI_API_KEY`, `LLM__DEFAULT_MODEL=gpt-6-luna`, `RAG_LLM_MODEL=gpt-6-luna`. Заменить `ADMIN_TOKEN` и `INTERNAL_TOKEN` разными случайными значениями через `openssl rand -hex 32`. Для истории в базе задать `CHAT_REPOSITORY=postgres`. Настроить `POSTGRES_PASSWORD` и согласовать с ним `DATABASE_URL` для локальных команд.
 
 ```bash
-uv sync                              # зависимости (+ langgraph, langchain, langchain-openai)
-cp .env.example .env                 # подставить LLM__OPENAI_API_KEY
-docker compose up -d                 # app + redis + postgres + qdrant
-uv run uvicorn app.main:app --reload
+cp .env.example .env
+uv sync --locked
+docker compose -f compose.yaml up -d redis postgres qdrant
+docker compose -f compose.yaml build app
+docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
+docker compose -f compose.yaml up -d app
+curl --fail http://localhost:8000/health
 ```
 
-Пример запроса к агенту:
+Файл `.env` заполнить до запуска контейнеров. Флаг `-f compose.yaml` задаёт базовую конфигурацию без автоматического dev-override. Отдельно запущенный на хосте `uvicorn` занимает тот же порт 8000, поэтому одновременно с контейнером приложения его запускать не нужно.
+
+При старте приложение загружает корпус из `RAG_DATA_DIR` в `RAG_COLLECTION`. Это требует Qdrant и ключа для эмбеддингов. Сбой сборки RAG виден в логах, поиск тогда возвращает сообщение о недоступной базе. Доступность арифметического инструмента не подтверждает работу поиска.
 
 ```bash
-curl -X POST http://localhost:8000/agent/chat \
+docker compose -f compose.yaml logs --tail 100 app
+```
+
+Telegram-бот включается отдельно после настройки `BOT_TOKEN`, `BOT_ADMIN_IDS`, числового `ADMIN_CHAT_ID` и общих секретов.
+
+```bash
+docker compose -f compose.yaml up -d bot
+```
+
+Бот обращается к `/chats`, а не к `/agent/chat`. Его история, окно последних сообщений, медиа и SSE продолжают обрабатываться чат-сервисом. Резюмирования истории этот снимок не добавляет. Создание engine Postgres не проверяет доступность самой базы и не включает автоматический переход на JSON. Администрирование и лимиты используют Postgres даже при `CHAT_REPOSITORY=json`.
+
+## Модели и окружение
+
+`app/agents/model.py` выбирает API для инструментов. С `gpt-6-luna` используется Chat Completions и `reasoning_effort="none"`. Для остальных моделей с префиксом `gpt-6` фабрика включает Responses API и параметр `reasoning`. Это настройки агентной модели, RAG-ответ и обычный чат используют собственные пути вызова.
+
+Для опциональных зависимостей предусмотрены группы.
+
+```bash
+uv sync --locked --extra tracing
+uv sync --locked --extra eval
+```
+
+Трейсинг включается через `PHOENIX_ENABLED=true`. Для приложения в Compose адрес сборщика уже задан как `http://phoenix:6006/v1/traces`. Чтобы увидеть трассы, запустить `docker compose -f compose.yaml up -d phoenix` и установить зависимости трейсинга в среду процесса приложения. Обычный Dockerfile ставит зависимости без extras, поэтому одна переменная не добавляет инструментаторы в контейнер.
+
+Оценка RAGAS использует отдельного судью из `EVAL_JUDGE_PROVIDER` и `EVAL_JUDGE_MODEL`, по примеру окружения — Anthropic. Для неё нужен `ANTHROPIC_API_KEY`. Эти настройки не заменяют `LLM__DEFAULT_MODEL` агента.
+
+`/ready` проверяет Redis. Работоспособность базы, агента и RAG подтверждается отдельными запросами и сообщениями старта. Ручка `/agent/chat` в этом снимке не проверяет пользовательскую авторизацию. Для внешнего доступа требуется добавить её на стороне сервера.
+
+## Запрос к агенту
+
+```bash
+curl --fail -X POST http://localhost:8000/agent/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message": "Сколько будет 17 умножить на 23?"}'
-# {"answer": "17 × 23 = 391", "tool_results": [{"name": "multiply", ...}]}
+  -d '{"message":"Сколько будет 17 умножить на 23?"}'
 ```
 
-## Проверить / тесты
+Ответ содержит `answer` и массив `tool_results`. Этот снимок принимает только `message`, сохраняемого `thread_id` у этой ручки нет. Каждый запрос начинает граф с нового состояния. Если граф не собран, ручка возвращает 503. Результат `multiply` доступен независимо от корпуса, а поиск нужно проверить отдельным вопросом по документам.
+
+## Проверки и схема
 
 ```bash
 uv run pytest -q
-# Схема кастомного графа → docs/agent-graph-custom.mmd (открыть в mermaid.live):
 uv run python -m scripts.visualize_graph
 ```
 
-Студенческий README снимка m6_b3. Сервис один и тот же, растёт по чекпоинтам.
+Визуализация создаёт `docs/agent-graph-custom.mmd`. Тесты графа подставляют модель и поиск. Для ручного запроса к настоящему агенту нужен действующий ключ.

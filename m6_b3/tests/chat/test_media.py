@@ -1,14 +1,45 @@
 """Тесты конвертации медиа в content-part."""
 
 import base64
+import shutil
+import subprocess
 from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import httpx
+from openai import AsyncOpenAI
 from docx import Document as DocxDocument
 from pypdf import PdfWriter
 
 from app.chat.media import extract_docx_text, extract_pdf_text, media_to_part
+
+
+@pytest.fixture
+def ogg_audio():
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is required for the Ogg conversion check")
+    return subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+         "-t", "0.05", "-c:a", "libopus", "-f", "ogg", "pipe:1"],
+        check=True, capture_output=True,
+    ).stdout
+
+
+async def test_ogg_is_converted_before_current_transcription_api(ogg_audio):
+    requests = []
+
+    async def handler(request):
+        requests.append(request.content)
+        return httpx.Response(200, json={"text": "heard"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        async with AsyncOpenAI(api_key="test-key", http_client=http) as llm:
+            part = await media_to_part(FakeUploadFile("audio/ogg", ogg_audio, "voice.ogg"), llm)
+    assert part["text"].endswith("heard")
+    assert b"gpt-transcribe" in requests[0]
+    assert b'filename="audio.wav"' in requests[0]
+    assert b"WAVE" in requests[0]
 
 
 class FakeUploadFile:
@@ -39,8 +70,8 @@ async def test_image_to_part_returns_base64_data_uri():
 
 
 @pytest.mark.asyncio
-async def test_audio_to_part_calls_whisper():
-    data = b"OggS\x00\x02fake-ogg-bytes"
+async def test_audio_to_part_calls_transcription(ogg_audio):
+    data = ogg_audio
     f = FakeUploadFile("audio/ogg", data, "voice.ogg")
 
     llm = MagicMock()
@@ -56,9 +87,9 @@ async def test_audio_to_part_calls_whisper():
 
 
 @pytest.mark.asyncio
-async def test_application_ogg_treated_as_audio():
+async def test_application_ogg_treated_as_audio(ogg_audio):
     """Telegram voice иногда летит как application/ogg, не audio/*."""
-    data = b"OggS\x00\x02"
+    data = ogg_audio
     f = FakeUploadFile("application/ogg", data, "v.ogg")
     llm = MagicMock()
     llm.audio.transcriptions.create = AsyncMock(

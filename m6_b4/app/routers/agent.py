@@ -61,7 +61,7 @@ def _to_response(result: dict, thread_id: str) -> AgentChatResponse:
     return AgentChatResponse(
         status="done",
         thread_id=thread_id,
-        answer=final.content or "",
+        answer=str(final.text),
         tool_results=result.get("tool_results", []),
     )
 
@@ -76,7 +76,7 @@ async def agent_chat(req: AgentChatRequest, graph: AgentGraphDep) -> AgentChatRe
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
-    decision: bool | str = True
+    decision: bool | str
 
 
 @router.post("/resume", response_model=AgentChatResponse)
@@ -104,7 +104,7 @@ def _format_event(stream_type: str, payload: Any) -> dict | None:
         return {"type": "update", "nodes": list(payload.keys())}
     if stream_type == "messages":
         chunk, _meta = payload
-        text = getattr(chunk, "content", "")
+        text = str(chunk.text)
         return {"type": "token", "text": text} if text else None
     return None
 

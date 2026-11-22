@@ -26,7 +26,7 @@ def mock_llm_stream():
         async def gen():
             for piece in ["При", "вет", "!"]:
                 yield MagicMock(
-                    choices=[MagicMock(delta=MagicMock(content=piece))],
+                    choices=[MagicMock(delta=MagicMock(content=piece), finish_reason="stop")],
                     usage=None,
                 )
             # завершающий кадр с usage
@@ -50,7 +50,7 @@ async def chat_client(json_repo, mock_llm_stream):
         repository=json_repo,
         llm_client=mock_llm_stream,
         context_window=10,
-        default_model="gpt-5.4-mini",
+        default_model="gpt-6-luna",
     )
 
     # Заготовка state — на случай если что-то всё ещё дёргает app.state.

@@ -19,11 +19,13 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal, TypedDict
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AnyMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+
+from app.agents.model import validate_model_response
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 
@@ -40,7 +42,8 @@ class PersistentAgentState(TypedDict):
     iteration_count: int
     tool_results: Annotated[list[dict], operator.add]
     draft: dict | None  # payload письма, подготовленный prepare_email (до отправки)
-    sent: bool  # выполнен ли side-effect отправки
+    pending_emails: list[dict]  # очередь отдельных подтверждений
+    sent: bool  # выполнен ли хотя бы один side-effect отправки
 
 
 @tool
@@ -52,13 +55,6 @@ def send_email(to: str, subject: str, body: str) -> str:
     # Тело напрямую не исполняется: граф перехватывает вызов и проводит его через
     # HIL-гейт (prepare_email -> confirm_and_send). Реальная отправка — после resume.
     return "queued-for-approval"
-
-
-def _find_call(message: AnyMessage, name: str) -> dict:
-    for call in message.tool_calls:
-        if call["name"] == name:
-            return call
-    raise ValueError(f"в сообщении нет tool_call {name!r}")
 
 
 def build_agent(
@@ -77,7 +73,7 @@ def build_agent(
     tool_by_name = {t.name: t for t in tools}
 
     async def call_model(state: PersistentAgentState) -> dict:
-        response = await bound_model.ainvoke(state["messages"])
+        response = validate_model_response(await bound_model.ainvoke(state["messages"]))
         return {
             "messages": [response],
             "iteration_count": state["iteration_count"] + 1,
@@ -93,16 +89,20 @@ def build_agent(
             if call["name"] not in tool_by_name:
                 content = f"error: unknown tool '{call['name']}'"
             else:
-                content = str(await tool_by_name[call["name"]].ainvoke(call["args"]))
+                try:
+                    content = str(await tool_by_name[call["name"]].ainvoke(call["args"]))
+                except Exception as exc:
+                    content = f"error: {type(exc).__name__}: {exc}"
             messages.append(ToolMessage(content=content, tool_call_id=call["id"]))
             results.append(
                 {"name": call["name"], "args": call["args"], "result": content}
             )
-        return {"messages": messages, "tool_results": results}
+        pending = [c for c in last.tool_calls if c["name"] == DANGEROUS_TOOL]
+        return {"messages": messages, "tool_results": results, "pending_emails": pending}
 
     async def prepare_email(state: PersistentAgentState) -> dict:
         """Idempotent: собирает payload письма из tool_call. Без side-effect."""
-        call = _find_call(state["messages"][-1], DANGEROUS_TOOL)
+        call, *remaining = state["pending_emails"]
         args = call["args"]
         draft = {
             "to": args.get("to", ""),
@@ -110,7 +110,7 @@ def build_agent(
             "body": args.get("body", ""),
             "tool_call_id": call["id"],
         }
-        return {"draft": draft}
+        return {"draft": draft, "pending_emails": remaining}
 
     async def confirm_and_send(
         state: PersistentAgentState, config: RunnableConfig
@@ -129,7 +129,7 @@ def build_agent(
         else:
             content = "отправка отменена пользователем"
         return {
-            "sent": approved,
+            "sent": state.get("sent", False) or approved,
             "messages": [
                 ToolMessage(content=content, tool_call_id=draft.get("tool_call_id", ""))
             ],
@@ -139,20 +139,31 @@ def build_agent(
         }
 
     async def force_finish(state: PersistentAgentState) -> dict:
+        last = state["messages"][-1]
+        calls = getattr(last, "tool_calls", None)
+        if calls:
+            replies = [ToolMessage(content="error: iteration limit", tool_call_id=c["id"])
+                       for c in calls]
+            return {"messages": [*replies, AIMessage(
+                content="Достигнут лимит шагов агента. Уточните или сократите задачу."
+            )]}
+        if not last.content:
+            return {"messages": [AIMessage(content="Модель не вернула текстовый ответ.")]}
         return {}
 
     def route_after_model(
         state: PersistentAgentState,
-    ) -> Literal["execute_tool", "prepare_email", "force_finish"]:
+    ) -> Literal["execute_tool", "force_finish"]:
         if state["iteration_count"] >= MAX_ITERATIONS:
             return "force_finish"
         last = state["messages"][-1]
         calls = getattr(last, "tool_calls", None)
         if not calls:
             return "force_finish"
-        if any(call["name"] == DANGEROUS_TOOL for call in calls):
-            return "prepare_email"
         return "execute_tool"
+
+    def route_pending(state: PersistentAgentState) -> Literal["prepare_email", "call_model"]:
+        return "prepare_email" if state.get("pending_emails") else "call_model"
 
     builder = StateGraph(PersistentAgentState)
     builder.add_node("call_model", call_model)
@@ -166,13 +177,12 @@ def build_agent(
         route_after_model,
         {
             "execute_tool": "execute_tool",
-            "prepare_email": "prepare_email",
             "force_finish": "force_finish",
         },
     )
-    builder.add_edge("execute_tool", "call_model")
+    builder.add_conditional_edges("execute_tool", route_pending)
     builder.add_edge("prepare_email", "confirm_and_send")
-    builder.add_edge("confirm_and_send", "call_model")
+    builder.add_conditional_edges("confirm_and_send", route_pending)
     builder.add_edge("force_finish", END)
     return builder.compile(checkpointer=checkpointer)
 

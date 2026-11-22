@@ -10,13 +10,13 @@ import asyncio
 import sys
 from pathlib import Path
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.agents.supervisor import build_supervisor  # noqa: E402
+from app.agents.supervisor import build_supervisor, extract_final_answer  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
+from app.agents.model import build_agent_model  # noqa: E402
 
 
 async def _fake_search(query: str) -> dict:
@@ -29,11 +29,7 @@ async def _fake_search(query: str) -> dict:
 
 async def main() -> None:
     settings = get_settings()
-    model = ChatOpenAI(
-        model=settings.llm.default_model,
-        temperature=0,
-        api_key=settings.llm.openai_api_key.get_secret_value(),
-    )
+    model = build_agent_model(settings)
     app = build_supervisor(model, _fake_search)
     config = {"configurable": {"thread_id": "demo-multi-agent"}}
     question = "Каков срок возврата денег за подписку? Ответь с источниками."
@@ -47,7 +43,7 @@ async def main() -> None:
 
     state = await app.aget_state(config)
     print("\n--- финальный ответ ---")
-    print(state.values["messages"][-1].content)
+    print(extract_final_answer(state.values["messages"]))
 
 
 if __name__ == "__main__":

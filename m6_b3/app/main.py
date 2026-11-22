@@ -118,17 +118,12 @@ async def lifespan(app: FastAPI):
     # Импорт ленивый — langgraph/langchain не нужны тестам без lifespan.
     app.state.agent_graph = None
     try:
-        from langchain_openai import ChatOpenAI
+        from app.agents.model import build_agent_model
 
         from app.agents.graph import build_custom_graph
         from app.agents.tools import build_search_knowledge_base, multiply
 
-        agent_model = ChatOpenAI(
-            model=settings.llm.default_model,
-            temperature=0,
-            api_key=settings.llm.openai_api_key.get_secret_value(),
-            timeout=settings.llm.request_timeout,
-        )
+        agent_model = build_agent_model(settings)
 
         async def _search_kb(query: str) -> dict:
             if app.state.rag_service is None:

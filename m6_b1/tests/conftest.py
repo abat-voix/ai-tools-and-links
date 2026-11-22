@@ -21,7 +21,8 @@ def make_response(
     message: SimpleNamespace, prompt_tokens: int = 12, completion_tokens: int = 7
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=message)],
+        choices=[SimpleNamespace(message=message,
+                                 finish_reason="tool_calls" if message.tool_calls else "stop")],
         usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),
     )
 

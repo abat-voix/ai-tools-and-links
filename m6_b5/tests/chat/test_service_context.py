@@ -25,7 +25,7 @@ def _make_streaming_llm(captured: dict):
         async def gen():
             for piece in ["ok", "!"]:
                 yield MagicMock(
-                    choices=[MagicMock(delta=MagicMock(content=piece))],
+                    choices=[MagicMock(delta=MagicMock(content=piece), finish_reason="stop")],
                     usage=None,
                 )
 
@@ -42,7 +42,7 @@ async def test_sliding_window_limits_history(json_repo):
         repository=json_repo,
         llm_client=llm,
         context_window=5,
-        default_model="gpt-5.4-mini",
+        default_model="gpt-6-luna",
     )
 
     chat = await service.create_chat(
@@ -87,7 +87,7 @@ async def test_send_message_saves_assistant_after_stream(json_repo):
         repository=json_repo,
         llm_client=llm,
         context_window=10,
-        default_model="gpt-5.4-mini",
+        default_model="gpt-6-luna",
     )
     chat = await service.create_chat("u", "cli")
 
@@ -147,7 +147,7 @@ async def test_clear_history_calls_soft_delete(json_repo):
         repository=json_repo,
         llm_client=AsyncMock(),
         context_window=10,
-        default_model="gpt-5.4-mini",
+        default_model="gpt-6-luna",
     )
     chat = await service.create_chat("u", "cli")
     await json_repo.append_message(

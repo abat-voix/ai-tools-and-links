@@ -20,6 +20,7 @@ from openai import (
 )
 
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse, Usage
+from app.services.request_options import completion_options
 
 
 class LLMService:
@@ -39,8 +40,7 @@ class LLMService:
             raw = await self.llm.chat.completions.create(
                 model=req.model,
                 messages=[m.model_dump() for m in req.messages],
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
+                **completion_options(req.model, req.max_tokens, req.temperature),
             )
             return ChatResponse.from_openai(raw)
         except RateLimitError as e:
@@ -58,7 +58,7 @@ class LLMService:
             raise LLMError(f"connection error: {e}") from e
 
     async def complete(self, req: ChatRequest) -> ChatResponse:
-        # Кешируем только детерминированные ответы и при наличии кеша.
+        # Нулевая температура — политика кеширования, не гарантия детерминизма.
         if req.temperature > 0 or self.cache is None:
             resp = await self._call(req)
             resp.cached = False
@@ -80,15 +80,25 @@ class LLMService:
         stream = await self.llm.chat.completions.create(
             model=req.model,
             messages=[m.model_dump() for m in req.messages],
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
+            **completion_options(req.model, req.max_tokens, req.temperature),
             stream=True,
             stream_options={"include_usage": True},
         )
+        finish_reason = None
+        has_text = False
         async for chunk in stream:
             if getattr(chunk, "choices", None):
-                delta = chunk.choices[0].delta
+                choice = chunk.choices[0]
+                reason = getattr(choice, "finish_reason", None)
+                if isinstance(reason, str):
+                    finish_reason = reason
+                if finish_reason == "content_filter":
+                    raise LLMContentFilterError("Ответ заблокирован поставщиком модели")
+                delta = choice.delta
                 if getattr(delta, "content", None):
+                    has_text = True
                     yield ChatDelta(content=delta.content)
             if getattr(chunk, "usage", None):
                 yield ChatDelta(usage=Usage.from_openai(chunk.usage))
+        if finish_reason != "stop" or not has_text:
+            raise LLMError("Модель не вернула завершённый текстовый ответ")

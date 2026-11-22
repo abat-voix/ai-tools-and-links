@@ -6,7 +6,7 @@ context_recall, factual_correctness (collections) и has_citation (@discrete_met
 pandas.DataFrame и пишем в tests/eval/results/{timestamp}_{label}.csv — это audit
 log, по которому строится временной ряд метрик.
 
-Судья (claude-sonnet-4-6 по умолчанию) отделён от production-LLM в /rag/query.
+Судья (claude-sonnet-5-5 по умолчанию) отделён от production-LLM в /rag/query.
 
 Запуск:
     uv run --extra eval python scripts/run_eval.py \

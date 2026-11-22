@@ -5,7 +5,7 @@ async def test_chat_stream(client, mock_llm):
     async def fake_stream():
         for text in ["При", "вет", "!"]:
             yield MagicMock(
-                choices=[MagicMock(delta=MagicMock(content=text))],
+                choices=[MagicMock(delta=MagicMock(content=text), finish_reason="stop")],
                 usage=None,
             )
         # Финальный кадр с usage (stream_options.include_usage=True)
@@ -38,7 +38,7 @@ async def test_chat_stream(client, mock_llm):
 async def test_chat_stream_content_type_headers(client, mock_llm):
     async def fake_stream():
         yield MagicMock(
-            choices=[MagicMock(delta=MagicMock(content="hi"))],
+            choices=[MagicMock(delta=MagicMock(content="hi"), finish_reason="stop")],
             usage=None,
         )
 

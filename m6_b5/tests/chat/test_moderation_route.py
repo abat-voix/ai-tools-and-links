@@ -38,7 +38,7 @@ async def blocking_client(tmp_path):
         repository=repo,
         llm_client=llm,
         context_window=10,
-        default_model="gpt-5.4-mini",
+        default_model="gpt-6-luna",
         moderation=moderation,
         prompt_repo=None,
     )
@@ -93,7 +93,7 @@ async def test_moderation_passes_through_normal_text(tmp_path):
     async def fake_create(**kwargs):
         async def gen():
             yield MagicMock(
-                choices=[MagicMock(delta=MagicMock(content="ok"))], usage=None
+                choices=[MagicMock(delta=MagicMock(content="ok"), finish_reason="stop")], usage=None
             )
 
         return gen()
@@ -109,7 +109,7 @@ async def test_moderation_passes_through_normal_text(tmp_path):
         repository=repo,
         llm_client=llm,
         context_window=10,
-        default_model="gpt-5.4-mini",
+        default_model="gpt-6-luna",
         moderation=moderation,
         prompt_repo=None,
     )

@@ -9,16 +9,16 @@
 import sys
 from pathlib import Path
 
-from langchain_openai import ChatOpenAI
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.agents.graph import build_custom_graph  # noqa: E402
 from app.agents.tools import multiply  # noqa: E402
+from app.agents.model import build_agent_model  # noqa: E402
+from app.core.config import Settings  # noqa: E402
 
 
 def main() -> None:
-    model = ChatOpenAI(model="gpt-5.4-mini", temperature=0, api_key="sk-placeholder")
+    model = build_agent_model(Settings(_env_file=None, llm={"openai_api_key": "test-key"}))
     graph = build_custom_graph(model, [multiply])
     mermaid = graph.get_graph().draw_mermaid()
 

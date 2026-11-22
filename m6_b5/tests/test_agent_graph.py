@@ -89,6 +89,11 @@ async def test_force_finish_stops_runaway_loop():
     result = await _run(graph, "зациклись")
 
     assert result["iteration_count"] == MAX_ITERATIONS
+    assert result["messages"][-1].content
+    assert not result["messages"][-1].tool_calls
+    calls = {c["id"] for m in result["messages"] for c in getattr(m, "tool_calls", [])}
+    replies = {m.tool_call_id for m in result["messages"] if hasattr(m, "tool_call_id")}
+    assert calls == replies
 
 
 @pytest.mark.asyncio
@@ -121,3 +126,11 @@ async def test_search_knowledge_base_tool_formats_sources():
 
     assert "Срок возврата — 14 дней" in out
     assert "[1] returns.md" in out
+
+
+async def test_tool_validation_error_becomes_observation():
+    model = FakeChat([_tool_call("multiply", {"a":"wrong", "b":2}, "bad"),
+                      AIMessage(content="Нужны корректные числа.")])
+    result = await _run(build_custom_graph(model, [multiply]), "посчитай")
+    assert result["tool_results"][0]["result"].startswith("error:")
+    assert result["messages"][-1].content == "Нужны корректные числа."

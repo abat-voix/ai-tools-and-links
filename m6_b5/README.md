@@ -1,75 +1,87 @@
-# m6_b5 — Мультиагент: супервизор (researcher + writer) поверх агента
+# Команда исследователя и редактора под супервизором
 
-Тот же `llm-service`, что рос `m3_b4 → m4_b4 → m5_b2 → m5_b3 → m5_b5 → m5_b6 →
-m6_b3 → m6_b4`, на чекпоинте мультиагентных систем. К одиночному ReAct-агенту
-добавлен **supervisor-слой**: два специализированных агента —
-`researcher` (ищет факты через RAG-инструмент) и `writer` (собирает ответ с
-цитированием) — под супервизором через `langgraph-supervisor`. Персистентность,
-HIL, стриминг и трейсинг из m6_b4 остаются на месте.
+Снимок продолжает персистентного агента из `m6_b4` и добавляет отдельный граф команды. `researcher` получает факты через RAG, `writer` формирует ответ, а супервизор передаёт управление между ними.
 
-## Что нового на этом чекпоинте
+## Что добавилось
 
-| Что добавилось | Файл | Зачем |
+| Часть | Файл | Назначение |
 |---|---|---|
-| Супервизор researcher + writer | `app/agents/supervisor.py` | `build_supervisor(model, search_fn)` через `create_supervisor`; researcher ищет факты (RAG-инструмент `search_knowledge_base`), writer оформляет ответ с цитированием `[1]`, `[2]` |
-| Ручка мультиагента | `app/routers/agent.py` | `POST /agent/research {question}` → ответ, собранный командой агентов |
-| Провайдер + сборка | `app/deps/providers.py`, `app/main.py` | supervisor собирается в `lifespan` отдельной веткой — её сбой не роняет одиночного агента |
-| Тест + демо | `tests/test_supervisor.py`, `scripts/multi_agent_demo.py` | структурный тест сборки графа + live-демо потока `supervisor → researcher → writer` |
-| Зависимость | `pyproject.toml` | `langgraph-supervisor` |
+| Команда | `app/agents/supervisor.py` | `create_supervisor`, два подграфа через `create_agent`, извлечение ответа writer |
+| Ручка | `app/routers/agent.py` | `POST /agent/research` с `question` и `thread_id` |
+| Сборка | `app/main.py` | Команда собирается отдельной веткой после одиночного агента |
+| Демо | `scripts/multi_agent_demo.py` | Настоящая модель и подставной поиск без Qdrant |
+| Проверки | `tests/test_supervisor.py` | Структура и контракты супервизора на подставных компонентах |
 
-Подключение: супервизор использует ту же модель и тот же RAG-инструмент, что и
-одиночный агент. `create_supervisor` сам создаёт handoff-инструменты
-`transfer_to_<name>` и ведёт общее состояние `messages`; researcher и writer —
-это `create_agent`-подграфы. Ручная альтернатива — свой супервизор через
-`Command(goto=..., update=...)` (даёт больше контроля над контекстом).
+Супервизор использует ту же фабрику модели и тот же контракт поиска, что одиночный агент. Сборка создаёт инструменты передачи `transfer_to_<name>`. Итог извлекается через `extract_final_answer`, чтобы служебная реплика супервизора не подменила ответ редактора.
 
-## Куда смотреть
+Одиночный агент сохраняет настройки `AGENT_CHECKPOINTER` и подтверждение писем из `m6_b4`. Граф команды при стандартной сборке использует отдельный `InMemorySaver`. Его состояние теряется при рестарте приложения, даже если одиночный агент подключён к Postgres. Команда не наследует ветку отправки писем и подтверждения одиночного агента.
 
-Главное в этом снимке — `app/agents/supervisor.py` (сборка супервизора) и
-`app/routers/agent.py` (`/agent/research`). Живой прогон потока —
-`scripts/multi_agent_demo.py`. Всё остальное — то же ядро (RAG + персистентный
-агент + HIL), что в m6_b4.
+## Запуск
 
-## Карта сервиса (что выросло)
-
-```
-app/
-├── agents/
-│   └── supervisor.py       # NEW: build_supervisor (create_supervisor: researcher + writer)
-├── routers/
-│   └── agent.py            # +POST /agent/research
-├── deps/providers.py       # +get_supervisor / SupervisorDep
-└── main.py                 # сборка supervisor в lifespan (отдельная ветка)
-scripts/
-└── multi_agent_demo.py     # NEW: live-демо потока супервизора
-tests/
-└── test_supervisor.py      # NEW: структурный тест сборки графа
-```
-
-## Быстрый старт
+Команды выполняются из этого каталога. В `.env` задать `LLM__OPENAI_API_KEY`, `LLM__DEFAULT_MODEL=gpt-6-luna`, `RAG_LLM_MODEL=gpt-6-luna`. Заменить `ADMIN_TOKEN` и `INTERNAL_TOKEN` разными случайными значениями через `openssl rand -hex 32`. Для истории в базе задать `CHAT_REPOSITORY=postgres`. Настроить `POSTGRES_PASSWORD` и согласовать с ним `DATABASE_URL` для локальных команд.
 
 ```bash
-uv sync                              # + langgraph-supervisor
-cp .env.example .env                 # LLM__OPENAI_API_KEY
-docker compose up -d                 # app + postgres + qdrant + redis
-uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+cp .env.example .env
+uv sync --locked
+docker compose -f compose.yaml up -d redis postgres qdrant
+docker compose -f compose.yaml build app
+docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
+docker compose -f compose.yaml up -d app
+curl --fail http://localhost:8000/health
 ```
 
-Запрос к мультиагенту:
+Файл `.env` заполнить до запуска контейнеров. Флаг `-f compose.yaml` задаёт базовую конфигурацию без автоматического dev-override. Отдельно запущенный на хосте `uvicorn` занимает тот же порт 8000, поэтому одновременно с контейнером приложения его запускать не нужно.
+
+При старте приложение загружает корпус из `RAG_DATA_DIR` в `RAG_COLLECTION`. Это требует Qdrant и ключа для эмбеддингов. Сбой сборки RAG виден в логах, поиск тогда возвращает сообщение о недоступной базе. Доступность арифметического инструмента не подтверждает работу поиска.
 
 ```bash
-curl -X POST localhost:8000/agent/research -H 'Content-Type: application/json' \
-  -d '{"question":"Каков срок возврата денег за подписку? Ответь с источниками."}'
-# researcher (RAG) собирает факты → writer оформляет ответ с цитированием [1]
+docker compose -f compose.yaml logs --tail 100 app
 ```
 
-## Проверить / тесты
+Telegram-бот включается отдельно после настройки `BOT_TOKEN`, `BOT_ADMIN_IDS`, числового `ADMIN_CHAT_ID` и общих секретов.
+
+```bash
+docker compose -f compose.yaml up -d bot
+```
+
+Бот обращается к `/chats`, а не к `/agent/chat`. Его история, окно последних сообщений, медиа и SSE продолжают обрабатываться чат-сервисом. Резюмирования истории этот снимок не добавляет. Создание engine Postgres не проверяет доступность самой базы и не включает автоматический переход на JSON. Администрирование и лимиты используют Postgres даже при `CHAT_REPOSITORY=json`.
+
+## Модели и окружение
+
+`app/agents/model.py` выбирает API для инструментов. С `gpt-6-luna` используется Chat Completions и `reasoning_effort="none"`. Для остальных моделей с префиксом `gpt-6` фабрика включает Responses API и параметр `reasoning`. Это настройки агентной модели, RAG-ответ и обычный чат используют собственные пути вызова.
+
+Для опциональных зависимостей предусмотрены группы.
+
+```bash
+uv sync --locked --extra tracing
+uv sync --locked --extra eval
+```
+
+Трейсинг включается через `PHOENIX_ENABLED=true`. Для приложения в Compose адрес сборщика уже задан как `http://phoenix:6006/v1/traces`. Чтобы увидеть трассы, запустить `docker compose -f compose.yaml up -d phoenix` и установить зависимости трейсинга в среду процесса приложения. Обычный Dockerfile ставит зависимости без extras, поэтому одна переменная не добавляет инструментаторы в контейнер.
+
+Оценка RAGAS использует отдельного судью из `EVAL_JUDGE_PROVIDER` и `EVAL_JUDGE_MODEL`, по примеру окружения — Anthropic. Для неё нужен `ANTHROPIC_API_KEY`. Эти настройки не заменяют `LLM__DEFAULT_MODEL` агента.
+
+`/ready` проверяет Redis. Работоспособность базы, агента и RAG подтверждается отдельными запросами и сообщениями старта. Ручки агента в этом примере не связывают пользователя с правом на `thread_id`. Для внешнего доступа потребуется авторизация этой связи.
+
+## Запрос к команде
+
+```bash
+curl --fail -X POST http://localhost:8000/agent/research \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Каков срок возврата денег за подписку? Ответь с источниками.","thread_id":"research-1"}'
+```
+
+Ответ имеет форму `{"answer":"..."}`. Полей `usage`, `tool_results` и `status` эта ручка не возвращает. Чтобы измерить цену и число передач, нужна отдельная трасса либо учёт вызовов. `thread_id` связывает запросы внутри живущего графа команды. Для независимого сравнения использовать новые идентификаторы. Если команда не собрана, ручка возвращает 503.
+
+`/agent/chat`, `/agent/resume` и `/agent/stream` относятся к одиночному агенту. У потока событие `interrupt` означает паузу, а следующий `done` — конец текущего потока. Контракт команды `/agent/research` не заменяет эти ручки.
+
+## Проверки и демонстрация
 
 ```bash
 uv run pytest -q
-# Live-демо: supervisor → researcher → writer (нужен LLM__OPENAI_API_KEY в .env)
 uv run python -m scripts.multi_agent_demo
 ```
 
-Студенческий README снимка m6_b5. Сервис один и тот же, растёт по чекпоинтам.
+Вторая команда делает платные вызовы модели, читает ключ из `.env` и использует подставной поиск. Доступность Qdrant и реального корпуса она не проверяет. Проверять поиск сервиса нужно отдельным HTTP-запросом к команде и сопоставлением источников с корпусом.
+
+При сравнении с одиночным агентом зафиксировать одинаковые вопросы, данные, модель и критерии. Дополнительные передачи и обращения к модели могут увеличить задержку и стоимость, а работоспособная сборка команды сама по себе не подтверждает улучшение ответов.

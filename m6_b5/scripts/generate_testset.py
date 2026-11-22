@@ -17,10 +17,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from llama_index.core import SimpleDirectoryReader  # noqa: E402
 from llama_index.embeddings.openai import OpenAIEmbedding  # noqa: E402
-from llama_index.llms.anthropic import Anthropic  # noqa: E402
+from app.eval.llm import TestsetAnthropic  # noqa: E402
+from app.services.rag_llm import OpenAIChatLLM  # noqa: E402
 from ragas.testset import TestsetGenerator  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
+
+
+def build_generator_llm(settings):
+    if settings.eval_judge_provider == "anthropic":
+        key = settings.anthropic_api_key
+        return TestsetAnthropic(
+            model=settings.eval_judge_model, max_tokens=4096,
+            api_key=key.get_secret_value() if key else None,
+        )
+    return OpenAIChatLLM(
+        model=settings.eval_judge_model, max_tokens=4096,
+        api_key=settings.llm.openai_api_key.get_secret_value(),
+        context_window=settings.rag_llm_context_window,
+        is_chat_model=True, is_function_calling_model=False,
+    )
 
 
 def main() -> None:
@@ -39,8 +55,11 @@ def main() -> None:
 
     # from_llama_index оборачивает LLM и эмбеддинги LlamaIndex под генератор.
     generator = TestsetGenerator.from_llama_index(
-        llm=Anthropic(model=settings.eval_judge_model),
-        embedding_model=OpenAIEmbedding(model=settings.embedding_model),
+        llm=build_generator_llm(settings),
+        embedding_model=OpenAIEmbedding(
+            model=settings.embedding_model,
+            api_key=settings.llm.openai_api_key.get_secret_value(),
+        ),
     )
     testset = generator.generate_with_llamaindex_docs(docs, testset_size=args.size)
 

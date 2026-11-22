@@ -18,6 +18,7 @@ from qdrant_client.models import Distance, PointStruct, VectorParams
 from app.core.config import Settings as AppSettings
 from app.core.config import get_settings
 from app.services.loader_utils import stable_id
+from app.services.request_options import completion_options
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class BareMetalRAG:
         context = "\n\n".join(f"[{h.payload['source']}] {h.payload['text']}" for h in hits)
         completion = self._openai.chat.completions.create(
             model=self._settings.rag_llm_model,
-            temperature=0.0,
+            **completion_options(self._settings.rag_llm_model, temperature=0.0),
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос: {question}"},

@@ -196,7 +196,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "openai", specifier = ">=2.0" }]
+requires-dist = [{ name = "openai", specifier = ">=2.37,<3" }]
 
 [package.metadata.requires-dev]
 dev = [

@@ -120,17 +120,12 @@ async def lifespan(app: FastAPI):
     app.state.agent_graph = None
     agent_stack = AsyncExitStack()
     try:
-        from langchain_openai import ChatOpenAI
+        from app.agents.model import build_agent_model
 
         from app.agents.tools import build_search_knowledge_base, multiply
         from app.services.agent_persistent import agent_lifespan
 
-        agent_model = ChatOpenAI(
-            model=settings.llm.default_model,
-            temperature=0,
-            api_key=settings.llm.openai_api_key.get_secret_value(),
-            timeout=settings.llm.request_timeout,
-        )
+        agent_model = build_agent_model(settings)
 
         async def _search_kb(query: str) -> dict:
             if app.state.rag_service is None:

@@ -84,8 +84,11 @@ class BackendClient:
                 ptype = payload.get("type")
                 if ptype == "done":
                     return
+                if ptype == "error":
+                    raise RuntimeError("backend stream failed")
                 if ptype in ("token", "message_saved"):
                     yield payload
+            raise RuntimeError("backend stream ended without done")
 
     async def clear_messages(
         self,
