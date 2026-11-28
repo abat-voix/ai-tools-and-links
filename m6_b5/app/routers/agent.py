@@ -164,4 +164,7 @@ async def agent_research(
         {"messages": [HumanMessage(req.question)]},
         {"configurable": {"thread_id": req.thread_id}},
     )
-    return ResearchResponse(answer=extract_final_answer(result["messages"]))
+    answer = extract_final_answer(result["messages"])
+    if not answer.strip():
+        raise HTTPException(status_code=502, detail="исследование завершилось без ответа")
+    return ResearchResponse(answer=answer)

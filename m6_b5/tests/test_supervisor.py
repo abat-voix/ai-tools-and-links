@@ -1,14 +1,14 @@
-"""Структурный тест мультиагентного супервизора — без сети.
+"""Проверки маршрута супервизора и результата API с подставными ответами."""
 
-Полный прогон (супервизор → researcher → writer) требует реальной модели и
-проверяется вживую / через scripts/multi_agent_demo.py. Здесь — что граф
-собирается и содержит нужные узлы.
-"""
+from unittest.mock import AsyncMock
 
+import httpx
+from fastapi import FastAPI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.agents.supervisor import build_supervisor, extract_final_answer
+from app.routers.agent import router
 
 
 async def _fake_search(query: str) -> dict:
@@ -73,6 +73,23 @@ def test_extract_final_answer_empty_when_writer_never_spoke():
     history = [HumanMessage("вопрос"), AIMessage("", name="supervisor")]
 
     assert extract_final_answer(history) == ""
+
+
+async def test_research_endpoint_reports_missing_writer_answer():
+    app = FastAPI()
+    app.include_router(router)
+    app.state.supervisor = AsyncMock()
+    app.state.supervisor.ainvoke.return_value = {
+        "messages": [HumanMessage("вопрос"), AIMessage("", name="supervisor")],
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test"
+    ) as client:
+        response = await client.post("/agent/research", json={"question": "вопрос"})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "исследование завершилось без ответа"
 
 
 def test_extract_final_answer_uses_text_blocks_only():

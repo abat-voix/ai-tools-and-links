@@ -31,12 +31,12 @@ from llama_index.core.vector_stores import (
     MetadataFilters,
 )
 from llama_index.embeddings.openai import OpenAIEmbedding
-from app.services.rag_llm import OpenAIChatLLM
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings as AppSettings
 from app.core.config import get_settings
+from app.services.rag_llm import OpenAIResponsesLLM
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +123,9 @@ class RAGService:
             else None
         )
 
-        Settings.llm = OpenAIChatLLM(
+        Settings.llm = OpenAIResponsesLLM(
             model=settings.rag_llm_model, temperature=0.0, api_key=api_key,
-            context_window=settings.rag_llm_context_window,
-            is_chat_model=True, is_function_calling_model=False,
+            context_window=settings.rag_llm_context_window, store=False,
         )
         Settings.embed_model = OpenAIEmbedding(model=settings.embedding_model, api_key=api_key)
         Settings.node_parser = SentenceSplitter(

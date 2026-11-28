@@ -8,7 +8,7 @@ async def test_chat_ok(client, mock_llm):
     assert data["content"] == "мок-ответ"
     assert data["model"] == "gpt-6-luna"
     assert data["usage"]["total_tokens"] == 15
-    mock_llm.chat.completions.create.assert_awaited_once()
+    mock_llm.responses.create.assert_awaited_once()
 
 
 async def test_chat_returns_request_id_header(client):
@@ -104,4 +104,4 @@ async def test_chat_cache_hit(client, mock_cache, mock_llm):
     data = resp.json()
     assert data["content"] == "из-кеша"
     assert data["cached"] is True
-    mock_llm.chat.completions.create.assert_not_called()
+    mock_llm.responses.create.assert_not_called()

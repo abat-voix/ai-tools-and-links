@@ -2,8 +2,8 @@
 
 RAGAS 0.4 — collections-API: каждая метрика это объект с корутиной `ascore(...)`
 (аргументы только именованные, у разных метрик разный набор полей), результат —
-`MetricResult` со `.value`. Судья создаётся через `llm_factory`, эмбеддинги для
-`AnswerRelevancy` — через `ragas.embeddings.OpenAIEmbeddings`. Кастомная
+`MetricResult` со `.value`. Судья OpenAI использует Responses API через Instructor.
+Эмбеддинги для `AnswerRelevancy` получает `ragas.embeddings.OpenAIEmbeddings`. Кастомная
 категориальная метрика — декоратором `@discrete_metric` (в 0.4 `AspectCritic` убран).
 
 Модуль импортирует ragas на верхнем уровне — тяжёлая группа `eval`
@@ -13,11 +13,11 @@ RAGAS 0.4 — collections-API: каждая метрика это объект �
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import instructor
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 from ragas.embeddings import OpenAIEmbeddings
-import instructor
 from ragas.metrics import discrete_metric
 from ragas.metrics.collections import (
     AnswerRelevancy,
@@ -62,7 +62,7 @@ def build_judge(settings: Settings) -> tuple[Any, OpenAIEmbeddings]:
     else:
         judge = ModelAwareJudge(
             model=settings.eval_judge_model, provider="openai", max_tokens=4096,
-            client=instructor.from_openai(openai_client, mode=instructor.Mode.JSON),
+            client=instructor.from_openai(openai_client, mode=instructor.Mode.RESPONSES_TOOLS),
         )
     return judge, embeddings
 

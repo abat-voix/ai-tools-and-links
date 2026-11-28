@@ -1,20 +1,8 @@
-from unittest.mock import MagicMock
+from tests.response_fixtures import MockTextStream
 
 
 async def test_chat_stream(client, mock_llm):
-    async def fake_stream():
-        for text in ["При", "вет", "!"]:
-            yield MagicMock(
-                choices=[MagicMock(delta=MagicMock(content=text), finish_reason="stop")],
-                usage=None,
-            )
-        # Финальный кадр с usage (stream_options.include_usage=True)
-        yield MagicMock(
-            choices=[],
-            usage=MagicMock(prompt_tokens=5, completion_tokens=3, total_tokens=8),
-        )
-
-    mock_llm.chat.completions.create.return_value = fake_stream()
+    mock_llm.responses.create.return_value = MockTextStream("При", "вет", "!")
 
     async with client.stream(
         "POST",
@@ -36,13 +24,7 @@ async def test_chat_stream(client, mock_llm):
 
 
 async def test_chat_stream_content_type_headers(client, mock_llm):
-    async def fake_stream():
-        yield MagicMock(
-            choices=[MagicMock(delta=MagicMock(content="hi"), finish_reason="stop")],
-            usage=None,
-        )
-
-    mock_llm.chat.completions.create.return_value = fake_stream()
+    mock_llm.responses.create.return_value = MockTextStream("hi")
 
     async with client.stream(
         "POST",

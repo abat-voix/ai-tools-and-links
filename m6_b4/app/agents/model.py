@@ -1,15 +1,13 @@
 """Выбор API и reasoning-параметров модели для tool calling."""
 from langchain_openai import ChatOpenAI
 
-from app.services.request_options import completion_options
+from app.services.request_options import response_options
 
 
 def build_agent_model(settings, **kwargs):
     model = settings.llm.default_model
-    options = completion_options(model, temperature=0)
-    if model.startswith("gpt-6") and not model.startswith("gpt-6-luna"):
-        effort = options.pop("reasoning_effort", "low")
-        options.update(use_responses_api=True, reasoning={"effort": effort})
+    options = response_options(model, temperature=0)
+    options["use_responses_api"] = True
     return ChatOpenAI(
         model=model, api_key=settings.llm.openai_api_key.get_secret_value(),
         timeout=settings.llm.request_timeout, **options, **kwargs,

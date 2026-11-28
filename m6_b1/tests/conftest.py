@@ -1,10 +1,4 @@
-"""Фейковый клиент OpenAI для тестов без сети.
-
-Повторяет ровно тот контракт, которым пользуется `run_agent`:
-`client.chat.completions.create(...)` -> объект с `choices[0].message`
-(`.content`, `.tool_calls`) и `.usage` (`.prompt_tokens`, `.completion_tokens`),
-а каждый tool call — `.id` и `.function` (`.name`, `.arguments` как JSON-строка).
-"""
+"""Подмена клиента Responses для тестов без сети."""
 
 from types import SimpleNamespace
 
@@ -14,20 +8,22 @@ def make_message(content: str | None = None, tool_calls: list | None = None) -> 
 
 
 def make_tool_call(call_id: str, name: str, arguments: str) -> SimpleNamespace:
-    return SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments=arguments))
+    return SimpleNamespace(type="function_call", call_id=call_id, name=name, arguments=arguments)
 
 
 def make_response(
-    message: SimpleNamespace, prompt_tokens: int = 12, completion_tokens: int = 7
+    message: SimpleNamespace, input_tokens: int = 12, output_tokens: int = 7
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=message,
-                                 finish_reason="tool_calls" if message.tool_calls else "stop")],
-        usage=SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens),
+        status="completed",
+        incomplete_details=None,
+        output=message.tool_calls or [],
+        output_text=message.content or "",
+        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
     )
 
 
-class _FakeCompletions:
+class _FakeResponses:
     def __init__(self, responses: list[SimpleNamespace]) -> None:
         self._responses = list(responses)
         self.calls: list[dict] = []
@@ -38,7 +34,7 @@ class _FakeCompletions:
 
 
 class FakeClient:
-    """Подменяет OpenAI: отдаёт заранее заданные ответы по очереди."""
+    """Отдаёт заранее заданные ответы по очереди."""
 
     def __init__(self, responses: list[SimpleNamespace]) -> None:
-        self.chat = SimpleNamespace(completions=_FakeCompletions(responses))
+        self.responses = _FakeResponses(responses)

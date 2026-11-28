@@ -5,12 +5,15 @@
 """
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
 import pytest
 
 from bot.services.backend_client import BackendClient
+from bot.services.error_handling import handle_backend_error
 
 
 @pytest.mark.asyncio
@@ -24,6 +27,27 @@ async def test_failed_or_unterminated_stream_is_not_success(tail):
         client = BackendClient(http)
         with pytest.raises(RuntimeError, match="stream"):
             [event async for event in client.send_message(uuid4(), "hello")]
+
+
+@pytest.mark.asyncio
+async def test_moderation_rejection_before_stream_can_be_shown_to_user():
+    class ErrorBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'{"detail":{"code":"moderation_blocked"}}'
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(
+        403, stream=ErrorBody(),
+    ))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        client = BackendClient(http)
+        with pytest.raises(httpx.HTTPStatusError) as rejection:
+            [event async for event in client.send_message(uuid4(), "hello")]
+
+    message = SimpleNamespace(answer=AsyncMock())
+    await handle_backend_error(message, rejection.value)
+    message.answer.assert_awaited_once_with(
+        "🛑 Запрос нарушает правила сервиса. Попробуйте переформулировать."
+    )
 
 
 @pytest.mark.asyncio

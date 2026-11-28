@@ -1,4 +1,4 @@
-"""Наивный агент на Chat Completions: цикл, диспетчер инструментов, трасса.
+"""Наивный агент на Responses API: цикл, диспетчер инструментов, трасса.
 
 Вся "магия агента" умещается в один `for`-цикл вокруг одного вызова LLM:
 модель либо возвращает финальный ответ, либо просит вызвать инструмент.
@@ -30,49 +30,65 @@ def run_agent(
     """Прогоняет наивный agent loop и возвращает ответ, число шагов и трассу."""
     if max_steps < 1:
         raise ValueError("max_steps должен быть положительным")
-    if model.startswith("gpt-6") and not model.startswith("gpt-6-luna"):
-        raise ValueError("Для этой модели с инструментами используйте Responses API (Б6.3)")
     client = client or OpenAI()
-    messages: list = [{"role": "user", "content": task}]
+    history: list = [{"role": "user", "content": task}]
     trace: list[dict] = []
+    options = {}
+    if model.startswith("gpt-6"):
+        options["reasoning"] = {"effort": "none" if model.startswith("gpt-6-luna") else "low"}
 
     for step in range(max_steps):
         started = time.perf_counter()
-        options = {"reasoning_effort": "none"} if model.startswith("gpt-6-luna") else {}
-        response = client.chat.completions.create(
-            model=model, messages=messages, tools=TOOLS, **options
+        response = client.responses.create(
+            model=model,
+            input=history,
+            tools=TOOLS,
+            store=False,
+            include=["reasoning.encrypted_content"],
+            **options,
         )
         duration_ms = round((time.perf_counter() - started) * 1000, 1)
 
-        message = response.choices[0].message
-        messages.append(message)
+        if response.status != "completed":
+            details = response.incomplete_details
+            reason = details.reason if details and details.reason else response.status
+            return {"answer": None, "steps": step + 1, "trace": trace,
+                    "error": reason or "unknown_status"}
 
         usage = response.usage
-        input_tokens = usage.prompt_tokens if usage else None
-        output_tokens = usage.completion_tokens if usage else None
+        input_tokens = usage.input_tokens if usage else None
+        output_tokens = usage.output_tokens if usage else None
+        calls = [item for item in response.output if item.type == "function_call"]
 
-        if not message.tool_calls:
-            reason = response.choices[0].finish_reason
-            if reason != "stop" or not (message.content or "").strip():
+        if not calls:
+            answer = response.output_text
+            if not answer.strip():
                 return {"answer": None, "steps": step + 1, "trace": trace,
-                        "error": reason if reason != "stop" else "empty_response"}
-            trace.append(
-                _trace_entry(
-                    step, None, None, message.content, input_tokens, output_tokens, duration_ms
-                )
-            )
+                        "error": "empty_response"}
+            trace.append(_trace_entry(
+                step, None, None, answer, input_tokens, output_tokens, duration_ms,
+            ))
             logger.info("step=%d финальный ответ", step)
-            return {"answer": message.content, "steps": step + 1, "trace": trace}
+            return {"answer": answer, "steps": step + 1, "trace": trace}
 
-        for call in message.tool_calls:
-            name = call.function.name
-            raw_args = call.function.arguments
-            result = _dispatch(name, raw_args)
-            trace.append(
-                _trace_entry(step, name, raw_args, result, input_tokens, output_tokens, duration_ms)
-            )
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
-            logger.info("step=%d инструмент=%s -> %s", step, name, result[:80])
+        # Сохраняем весь output: следующий вызов видит запросы функций и reasoning items.
+        history.extend(response.output)
+        for call_index, call in enumerate(calls):
+            result = _dispatch(call.name, call.arguments)
+            trace.append(_trace_entry(
+                step,
+                call.name,
+                call.arguments,
+                result,
+                input_tokens if call_index == 0 else None,
+                output_tokens if call_index == 0 else None,
+                duration_ms,
+                call_id=call.call_id,
+            ))
+            history.append({
+                "type": "function_call_output", "call_id": call.call_id, "output": result,
+            })
+            logger.info("step=%d инструмент=%s", step, call.name)
 
     logger.warning("исчерпан лимит шагов max_steps=%d", max_steps)
     return {"answer": None, "steps": max_steps, "trace": trace, "error": "max_steps"}
@@ -84,13 +100,15 @@ def _dispatch(name: str, raw_args: str) -> str:
         return f"Ошибка: инструмент '{name}' недоступен. Доступные: {sorted(DISPATCH)}"
     try:
         arguments = json.loads(raw_args) if raw_args else {}
-    except json.JSONDecodeError as exc:
-        return f"Ошибка: не удалось разобрать аргументы ({exc})"
+    except json.JSONDecodeError:
+        return "Ошибка: не удалось разобрать аргументы"
+    if not isinstance(arguments, dict):
+        return "Ошибка: аргументы инструмента должны быть JSON-объектом"
     try:
         return str(DISPATCH[name](**arguments))
-    except Exception as exc:
+    except Exception:
         logger.exception("инструмент %s завершился ошибкой", name)
-        return f"Ошибка инструмента: {exc}"
+        return "Ошибка инструмента: действие не выполнено"
 
 
 def _trace_entry(
@@ -101,11 +119,14 @@ def _trace_entry(
     input_tokens: int | None,
     output_tokens: int | None,
     duration_ms: float,
+    *,
+    call_id: str | None = None,
 ) -> dict:
     """Одна запись трассы — единый формат для шага с инструментом и без него."""
     preview = None if tool_result is None else str(tool_result)[:_RESULT_PREVIEW_LEN]
     return {
         "step": step,
+        "call_id": call_id,
         "tool_name": tool_name,
         "tool_args": tool_args,
         "tool_result": preview,
@@ -116,10 +137,10 @@ def _trace_entry(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Наивный агент на Chat Completions")
+    parser = argparse.ArgumentParser(description="Наивный агент на Responses API")
     parser.add_argument("task", help="Задача для агента")
     parser.add_argument("--max-steps", type=int, default=6, help="Лимит шагов (guardrail)")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Модель Chat Completions")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Модель Responses API")
     parser.add_argument("--trace", action="store_true", help="Печатать пошаговую трассу")
     args = parser.parse_args(argv)
 

@@ -5,7 +5,7 @@ async def test_list_models(client):
     assert isinstance(data, list)
     assert len(data) >= 2
     ids = {m["id"] for m in data}
-    assert "gpt-6-luna" in ids
+    assert {"gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra"} <= ids
     for m in data:
         assert m["provider"] in {"openai", "ollama", "anthropic"}
         assert m["input_per_1m"] >= 0

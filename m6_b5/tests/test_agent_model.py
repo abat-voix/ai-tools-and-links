@@ -8,27 +8,22 @@ from app.agents.tools import multiply
 from app.core.config import Settings
 
 
-@pytest.mark.parametrize("model,endpoint,effort", [
-    ("gpt-6-luna", "/chat/completions", "none"),
-    ("gpt-6.1-sol", "/responses", "low"),
+@pytest.mark.parametrize("model,effort", [
+    ("gpt-6-luna", "none"),
+    ("gpt-6.2-sol", "low"),
+    ("gpt-6.2-astra", "low"),
 ])
-async def test_agent_model_wire_tool_call(model, endpoint, effort):
+async def test_agent_model_wire_tool_call(model, effort):
     requests = []
 
     async def handler(request):
         requests.append((request.url.path, json.loads(request.content)))
         call = {"name":"multiply", "arguments":'{"a":2,"b":3}'}
-        if request.url.path.endswith("/responses"):
-            payload = {"id":"r1", "object":"response", "created_at":1,
-                "status":"completed", "model":model, "output":[{
-                    "type":"function_call", "id":"f1", "call_id":"c1", **call,
-                    "status":"completed"}],
-                "usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}
-        else:
-            payload = {"id":"c1", "object":"chat.completion", "created":1,
-                "model":model,"choices":[{"index":0,"finish_reason":"tool_calls",
-                    "message":{"role":"assistant", "content":None,"tool_calls":[
-                        {"id":"c1","type":"function","function":call}]}}]}
+        payload = {"id":"r1", "object":"response", "created_at":1,
+            "status":"completed", "model":model, "output":[{
+                "type":"function_call", "id":"f1", "call_id":"c1", **call,
+                "status":"completed"}],
+            "usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}
         return httpx.Response(200, json=payload)
 
     settings = Settings(_env_file=None, llm={"openai_api_key":"test-key", "default_model":model})
@@ -37,12 +32,10 @@ async def test_agent_model_wire_tool_call(model, endpoint, effort):
         response = await llm.bind_tools([multiply]).ainvoke("2 * 3")
     assert response.tool_calls[0]["args"] == {"a":2,"b":3}
     path, body = requests[0]
-    assert path.endswith(endpoint)
-    if endpoint == "/responses":
-        assert body["reasoning"]["effort"] == effort
+    assert path.endswith("/responses")
+    assert body["reasoning"]["effort"] == effort
+    if effort != "none":
         assert "temperature" not in body
-    else:
-        assert body["reasoning_effort"] == effort
 
 
 @pytest.mark.parametrize("metadata,content", [

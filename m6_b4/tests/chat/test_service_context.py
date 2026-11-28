@@ -1,6 +1,6 @@
 """Тесты ChatService — стратегия sliding window и подсчёт токенов."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -8,6 +8,7 @@ import pytest
 from app.chat.context import count_tokens, fit_to_budget
 from app.chat.domain import ChatMessage
 from app.chat.service import ChatService
+from tests.response_fixtures import MockTextStream
 
 
 pytestmark = pytest.mark.asyncio
@@ -18,20 +19,13 @@ def _make_streaming_llm(captured: dict):
     llm = AsyncMock()
 
     async def fake_create(**kwargs):
-        captured["messages"] = kwargs.get("messages")
+        captured["messages"] = kwargs.get("input")
         captured["model"] = kwargs.get("model")
         captured["stream"] = kwargs.get("stream")
 
-        async def gen():
-            for piece in ["ok", "!"]:
-                yield MagicMock(
-                    choices=[MagicMock(delta=MagicMock(content=piece), finish_reason="stop")],
-                    usage=None,
-                )
+        return MockTextStream("ok", "!")
 
-        return gen()
-
-    llm.chat.completions.create = AsyncMock(side_effect=fake_create)
+    llm.responses.create = AsyncMock(side_effect=fake_create)
     return llm
 
 

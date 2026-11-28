@@ -76,7 +76,9 @@ class BackendClient:
             headers=headers,
             timeout=120.0,
         ) as r:
-            r.raise_for_status()
+            if not r.is_success:
+                await r.aread()
+                r.raise_for_status()
             async for line in r.aiter_lines():
                 if not line.startswith("data: "):
                     continue

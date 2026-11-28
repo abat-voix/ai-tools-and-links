@@ -19,8 +19,8 @@ class Usage(BaseModel):
     @classmethod
     def from_openai(cls, u) -> "Usage":
         return cls(
-            prompt_tokens=getattr(u, "prompt_tokens", 0),
-            completion_tokens=getattr(u, "completion_tokens", 0),
+            prompt_tokens=getattr(u, "input_tokens", 0),
+            completion_tokens=getattr(u, "output_tokens", 0),
             total_tokens=getattr(u, "total_tokens", 0),
         )
 
@@ -65,12 +65,16 @@ class ChatResponse(BaseModel):
 
     @classmethod
     def from_openai(cls, raw) -> "ChatResponse":
-        choice = raw.choices[0]
+        reason = "stop" if raw.status == "completed" else None
+        if raw.incomplete_details:
+            reason = raw.incomplete_details.reason
+            if reason == "max_output_tokens":
+                reason = "length"
         return cls(
-            content=choice.message.content or "",
+            content=raw.output_text,
             model=raw.model,
             usage=Usage.from_openai(raw.usage),
-            finish_reason=choice.finish_reason,
+            finish_reason=reason,
         )
 
 

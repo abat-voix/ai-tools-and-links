@@ -1,7 +1,7 @@
-"""Конвертация загруженных медиа в content-part для OpenAI Chat Completions.
+"""Конвертация загруженных медиа в части, которые хранит чат.
 
-Native multimodal: изображения отдаются как `image_url`-part (data: base64
-URI) прямо в основной chat.completions.create — без отдельного Vision-вызова.
+Изображения хранятся в `media_refs.part` как data URL.
+ChatService преобразует их в `input_image` для Responses API.
 Голос идёт через gpt-transcribe; Ogg/Opus нормализуется в WAV через FFmpeg.
 PDF/DOCX — извлечение текста через pypdf / python-docx.
 
@@ -21,13 +21,13 @@ from fastapi import UploadFile
 from openai import AsyncOpenAI
 from pypdf import PdfReader
 
-ContentPart = dict  # тип-алиас под OpenAI Chat Completions content-part
+ContentPart = dict  # формат `media_refs.part` в хранилище чата
 
 
 async def media_to_part(
     media: UploadFile, llm_client: AsyncOpenAI
 ) -> ContentPart:
-    """Конвертирует загруженное медиа в content-part для chat.completions.
+    """Готовит часть для записи в `media_refs.part`.
 
     Поддерживаемые типы:
     - `image/*` → image_url-part с data: base64 URI.

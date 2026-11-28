@@ -1,7 +1,7 @@
 [project]
 name = "m6-b1-naive-agent"
 version = "0.1.0"
-description = "Наивный агент на Chat Completions: цикл, инструменты, трасса"
+description = "Наивный агент на Responses API: цикл, инструменты, трасса"
 requires-python = ">=3.12"
 dependencies = [
     "openai>=2.37,<3",

@@ -17,11 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from llama_index.core import SimpleDirectoryReader  # noqa: E402
 from llama_index.embeddings.openai import OpenAIEmbedding  # noqa: E402
-from app.eval.llm import TestsetAnthropic  # noqa: E402
-from app.services.rag_llm import OpenAIChatLLM  # noqa: E402
 from ragas.testset import TestsetGenerator  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
+from app.eval.llm import TestsetAnthropic  # noqa: E402
+from app.services.rag_llm import OpenAIResponsesLLM  # noqa: E402
 
 
 def build_generator_llm(settings):
@@ -31,11 +31,10 @@ def build_generator_llm(settings):
             model=settings.eval_judge_model, max_tokens=4096,
             api_key=key.get_secret_value() if key else None,
         )
-    return OpenAIChatLLM(
-        model=settings.eval_judge_model, max_tokens=4096,
+    return OpenAIResponsesLLM(
+        model=settings.eval_judge_model, max_output_tokens=4096,
         api_key=settings.llm.openai_api_key.get_secret_value(),
-        context_window=settings.rag_llm_context_window,
-        is_chat_model=True, is_function_calling_model=False,
+        context_window=settings.rag_llm_context_window, store=False,
     )
 
 

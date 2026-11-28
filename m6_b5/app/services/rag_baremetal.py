@@ -18,7 +18,7 @@ from qdrant_client.models import Distance, PointStruct, VectorParams
 from app.core.config import Settings as AppSettings
 from app.core.config import get_settings
 from app.services.loader_utils import stable_id
-from app.services.request_options import completion_options
+from app.services.request_options import response_options
 
 logger = logging.getLogger(__name__)
 
@@ -89,17 +89,18 @@ class BareMetalRAG:
         ).points
 
         context = "\n\n".join(f"[{h.payload['source']}] {h.payload['text']}" for h in hits)
-        completion = self._openai.chat.completions.create(
+        response = self._openai.responses.create(
             model=self._settings.rag_llm_model,
-            **completion_options(self._settings.rag_llm_model, temperature=0.0),
-            messages=[
+            **response_options(self._settings.rag_llm_model, temperature=0.0),
+            store=False,
+            input=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос: {question}"},
             ],
         )
 
         top_score = hits[0].score if hits else 0.0
-        answer_text = completion.choices[0].message.content
+        answer_text = response.output_text
         if top_score < self._settings.rag_score_threshold:
             answer_text = "В базе знаний нет ответа на этот вопрос."
 

@@ -13,11 +13,18 @@ CATALOG: dict[str, ModelInfo] = {
         output_per_1m=0.50,
         context_window=1_050_000,
     ),
-    "gpt-6.1-sol": ModelInfo(
-        id="gpt-6.1-sol",
+    "gpt-6.2-sol": ModelInfo(
+        id="gpt-6.2-sol",
         provider="openai",
         input_per_1m=2.00,
         output_per_1m=10.00,
+        context_window=1_050_000,
+    ),
+    "gpt-6.2-astra": ModelInfo(
+        id="gpt-6.2-astra",
+        provider="openai",
+        input_per_1m=8.00,
+        output_per_1m=40.00,
         context_window=1_050_000,
     ),
 }

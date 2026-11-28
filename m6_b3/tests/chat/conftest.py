@@ -1,6 +1,6 @@
 """Фикстуры для chat-тестов."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -10,6 +10,7 @@ from app.chat.repositories.json_repo import JsonChatRepository
 from app.chat.service import ChatService
 from app.deps.providers import get_cache, get_llm
 from app.main import app
+from tests.response_fixtures import MockTextStream
 
 
 @pytest.fixture
@@ -19,27 +20,11 @@ def json_repo(tmp_path):
 
 @pytest.fixture
 def mock_llm_stream():
-    """Мок AsyncOpenAI, который при .chat.completions.create стримит три чанка."""
+    """Мок AsyncOpenAI с новым стримом на каждый вызов."""
     llm = AsyncMock()
-
-    async def fake_create(**kwargs):
-        async def gen():
-            for piece in ["При", "вет", "!"]:
-                yield MagicMock(
-                    choices=[MagicMock(delta=MagicMock(content=piece), finish_reason="stop")],
-                    usage=None,
-                )
-            # завершающий кадр с usage
-            yield MagicMock(
-                choices=[],
-                usage=MagicMock(
-                    prompt_tokens=5, completion_tokens=3, total_tokens=8
-                ),
-            )
-
-        return gen()
-
-    llm.chat.completions.create = AsyncMock(side_effect=fake_create)
+    llm.responses.create = AsyncMock(
+        side_effect=lambda **_: MockTextStream("При", "вет", "!")
+    )
     return llm
 
 

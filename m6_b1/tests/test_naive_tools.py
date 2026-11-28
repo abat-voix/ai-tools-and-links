@@ -41,11 +41,13 @@ def test_send_telegram_message_prints_and_confirms(capsys):
 
 
 def test_dispatch_matches_tools_schema():
-    schema_names = {tool["function"]["name"] for tool in TOOLS}
+    schema_names = {tool["name"] for tool in TOOLS}
     assert schema_names == set(DISPATCH)
 
 
-def test_every_tool_description_has_at_least_two_sentences():
+def test_every_tool_schema_is_strict():
     for tool in TOOLS:
-        description = tool["function"]["description"]
-        assert description.count(".") >= 2, tool["function"]["name"]
+        schema = tool["parameters"]
+        assert tool["strict"] is True
+        assert schema["additionalProperties"] is False
+        assert set(schema["required"]) == set(schema["properties"])

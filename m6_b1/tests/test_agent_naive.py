@@ -6,6 +6,7 @@ from tests.conftest import FakeClient, make_message, make_response, make_tool_ca
 
 _TRACE_FIELDS = {
     "step",
+    "call_id",
     "tool_name",
     "tool_args",
     "tool_result",
@@ -106,7 +107,7 @@ def test_parallel_tool_calls_in_one_step_make_two_trace_entries():
                 make_message(
                     tool_calls=[
                         make_tool_call("c1", "search_knowledge_base", '{"query": "доставка"}'),
-                        make_tool_call("c2", "get_current_time", "{}"),
+                        make_tool_call("c2", "get_current_time", '{"timezone": "Europe/Moscow"}'),
                     ]
                 )
             ),
@@ -119,6 +120,9 @@ def test_parallel_tool_calls_in_one_step_make_two_trace_entries():
     step_zero = [e for e in result["trace"] if e["step"] == 0]
     assert len(step_zero) == 2
     assert {e["tool_name"] for e in step_zero} == {"search_knowledge_base", "get_current_time"}
+    assert [e["call_id"] for e in step_zero] == ["c1", "c2"]
+    assert [e["llm_input_tokens"] for e in step_zero] == [12, None]
+    assert [e["llm_output_tokens"] for e in step_zero] == [7, None]
 
 
 def test_main_prints_answer_and_returns_zero(monkeypatch, capsys):

@@ -27,7 +27,7 @@ uv run --env-file .env python -m app.services.agent_naive \
   'Какие правила возврата электроники?' --trace
 ```
 
-Модель по умолчанию — `gpt-6-luna`, API — Chat Completions, `reasoning_effort="none"`. Можно явно передать `--model gpt-6-luna` и `--max-steps 6`. Другие модели семейства GPT-6 эта реализация отклоняет. Для них агентный вариант с выбором Responses API находится в каталоге `m6_b3`.
+Агент вызывает Responses API. Модель по умолчанию — `gpt-6-luna`, режим рассуждения — `none`. Для `--model gpt-6.2-sol` и `--model gpt-6.2-astra` используется `low`. `--max-steps` задаёт лимит обращений, по умолчанию шесть.
 
 ## Что возвращается
 

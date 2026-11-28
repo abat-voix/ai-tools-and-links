@@ -1,7 +1,7 @@
 """Инструменты наивного агента: реализации + описания в JSON Schema.
 
 Здесь живут три инструмента, словарь-allowlist `DISPATCH` и список `TOOLS`
-с описаниями в формате OpenAI Chat Completions. Агент (`agent_naive.run_agent`)
+с описаниями в формате OpenAI Responses. Агент (`agent_naive.run_agent`)
 импортирует `TOOLS` и `DISPATCH` отсюда и сам не знает деталей реализации.
 """
 
@@ -47,75 +47,42 @@ DISPATCH = {
     "send_telegram_message": send_telegram_message,
 }
 
-# Описания инструментов для Chat Completions. От качества description
-# напрямую зависит, выберет ли модель нужный инструмент в нужный момент.
+# В строгих схемах Responses перечисляем все поля и запрещаем лишние.
 TOOLS = [
     {
         "type": "function",
-        "function": {
-            "name": "search_knowledge_base",
-            "description": (
-                "Ищет ответ во внутренней базе знаний компании: правила возврата, "
-                "условия доставки, гарантия, способы оплаты. Вызывай, когда нужны "
-                "фактические данные о товарах или политике обслуживания клиента."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Поисковый запрос на русском языке",
-                    }
-                },
-                "required": ["query"],
-            },
+        "name": "search_knowledge_base",
+        "description": "Ищет правила возврата, доставки, гарантии и оплаты.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": False,
         },
+        "strict": True,
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_current_time",
-            "description": (
-                "Возвращает текущие дату и время в указанном часовом поясе в формате "
-                "ISO 8601. Вызывай, когда нужно знать текущее время, например для "
-                "расчёта сроков возврата или доставки."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "timezone": {
-                        "type": "string",
-                        "description": "Имя часового пояса IANA, например Europe/Moscow",
-                        "default": "Europe/Moscow",
-                    }
-                },
-                "required": [],
-            },
+        "name": "get_current_time",
+        "description": "Возвращает время в часовом поясе IANA, например Europe/Moscow.",
+        "parameters": {
+            "type": "object",
+            "properties": {"timezone": {"type": "string"}},
+            "required": ["timezone"],
+            "additionalProperties": False,
         },
+        "strict": True,
     },
     {
         "type": "function",
-        "function": {
-            "name": "send_telegram_message",
-            "description": (
-                "Отправляет текстовое сообщение клиенту в Telegram по идентификатору "
-                "чата. Вызывай только для финального ответа клиенту и только после "
-                "того, как все нужные данные уже собраны."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "chat_id": {
-                        "type": "string",
-                        "description": "Идентификатор чата клиента в Telegram",
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "Текст сообщения для клиента",
-                    },
-                },
-                "required": ["chat_id", "text"],
-            },
+        "name": "send_telegram_message",
+        "description": "Печатает учебное сообщение. Внешняя отправка не выполняется.",
+        "parameters": {
+            "type": "object",
+            "properties": {"chat_id": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["chat_id", "text"],
+            "additionalProperties": False,
         },
+        "strict": True,
     },
 ]
