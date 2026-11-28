@@ -1,8 +1,6 @@
 # Помощник техподдержки на FastAPI
 
-Учебный HTTP-сервис вызывает OpenAI через Responses API, проверяет запросы,
-поддерживает потоковую выдачу. В этом снимке непотоковая ручка дополнена инструментом чтения заявки. Для базы использованы
-структура FastAPI, ASGI-тесты и Redis из снимка `ai-tools-and-links/m3_b5`.
+К [FastAPI-сервису из М2](../m2_b6/fastapi/) добавлен инструмент чтения статуса заявки. Маршрут `POST /chat` выполняет его через Responses API. `POST /chat/stream` выдаёт текстовый ответ потоком.
 
 ## Запуск
 
@@ -10,8 +8,8 @@
 `OPENAI_API_KEY` и задайте разные случайные `DEMO_TOKEN_A` и `DEMO_TOKEN_B`.
 
 ```bash
-uv sync
-uv run uvicorn app.main:app
+uv sync --locked
+uv run --locked uvicorn app.main:app
 ```
 
 В OpenAPI на `http://127.0.0.1:8000/docs` укажите учебный bearer-токен. Пример

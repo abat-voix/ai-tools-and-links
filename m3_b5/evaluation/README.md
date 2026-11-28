@@ -4,7 +4,7 @@
 
 ```bash
 python3 -m unittest -v test_gate.py
-python3 run_evaluation.py --output /tmp/support-good-report.json
+python3 run_evaluation.py
 python3 run_evaluation.py --run runs/synthetic-access-violation.jsonl
 ```
 
