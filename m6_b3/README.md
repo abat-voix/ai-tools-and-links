@@ -14,21 +14,33 @@
 
 `app/main.py` создаёт модель и передаёт графу список инструментов. `app/deps/providers.py` возвращает собранный граф через типизированную зависимость. `search_knowledge_base` возвращает ответ RAG с источниками, а не один необработанный фрагмент. `build_prebuilt_graph` показывает альтернативную сборку через `langchain.agents.create_agent`.
 
-## Запуск
+## Быстрая проверка без ключа
 
-Команды выполняются из этого каталога. В `.env` задать `LLM__OPENAI_API_KEY`, `LLM__DEFAULT_MODEL=gpt-6-luna`, `RAG_LLM_MODEL=gpt-6-luna`. Заменить `ADMIN_TOKEN` и `INTERNAL_TOKEN` разными случайными значениями через `openssl rand -hex 32`. Для истории в базе задать `CHAT_REPOSITORY=postgres`. Настроить `POSTGRES_PASSWORD` и согласовать с ним `DATABASE_URL` для локальных команд.
+Из каталога блока на Python 3.12+ с `uv` выполните:
 
 ```bash
-cp .env.example .env
-uv sync --locked
-docker compose -f compose.yaml up -d redis postgres qdrant
-docker compose -f compose.yaml build app
-docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
-docker compose -f compose.yaml up -d app
-curl --fail http://localhost:8000/health
+uv run --locked pytest -q tests/test_agent_graph.py tests/test_agent_model.py
 ```
 
-Файл `.env` заполнить до запуска контейнеров. Флаг `-f compose.yaml` задаёт базовую конфигурацию без автоматического dev-override. Отдельно запущенный на хосте `uvicorn` занимает тот же порт 8000, поэтому одновременно с контейнером приложения его запускать не нужно.
+Тесты проверяют вызов инструмента, завершение по бюджету и обработку результата модели. Отдельно можно построить Mermaid-схему командой `uv run --locked python -m scripts.visualize_graph`. Файл появится в `docs/agent-graph-custom.mmd`.
+
+Для полного набора тестов, включая оценки RAG, выполните `uv run --locked --extra eval pytest -q`.
+
+## Запуск HTTP-сервиса
+
+Из каталога блока создайте `.env`: `test -f .env || cp .env.example .env`. Укажите `LLM__OPENAI_API_KEY`. Модель в шаблоне уже задана как `gpt-6-luna` для агента и RAG. Для истории чатов в PostgreSQL выберите `CHAT_REPOSITORY=postgres`. Для ручек администрирования и уведомлений задайте разные случайные `ADMIN_TOKEN` и `INTERNAL_TOKEN` командой `openssl rand -hex 32`.
+
+```bash
+docker compose -f compose.yaml up -d --wait redis postgres qdrant
+docker compose -f compose.yaml build app
+docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
+docker compose -f compose.yaml up -d --wait app
+curl --fail http://localhost:8000/ready
+```
+
+Флаг `--wait` ждёт готовности контейнеров. Базовый `compose.yaml` задаёт адреса Redis, PostgreSQL и Qdrant внутри сети Docker. Если меняете `POSTGRES_PASSWORD`, согласуйте с ним `DATABASE_URL` для команд, которые запускаете вне Compose.
+
+Для перехода между блоками сначала остановите предыдущий стек командой `docker compose -f compose.yaml down` из его каталога. У блоков общие имена контейнеров и порт 8000.
 
 При старте приложение загружает корпус из `RAG_DATA_DIR` в `RAG_COLLECTION`. Это требует Qdrant и ключа для эмбеддингов. Сбой сборки RAG виден в логах, поиск тогда возвращает сообщение о недоступной базе. Доступность арифметического инструмента не подтверждает работу поиска.
 
@@ -66,16 +78,7 @@ uv sync --locked --extra eval
 ```bash
 curl --fail -X POST http://localhost:8000/agent/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message":"Сколько будет 17 умножить на 23?"}'
+  -d '{"message":"Вызови multiply для 17 и 23 и сообщи результат."}'
 ```
 
-Ответ содержит `answer` и массив `tool_results`. Этот снимок принимает только `message`, сохраняемого `thread_id` у этой ручки нет. Каждый запрос начинает граф с нового состояния. Если граф не собран, ручка возвращает 503. Результат `multiply` доступен независимо от корпуса, а поиск нужно проверить отдельным вопросом по документам.
-
-## Проверки и схема
-
-```bash
-uv run pytest -q
-uv run python -m scripts.visualize_graph
-```
-
-Визуализация создаёт `docs/agent-graph-custom.mmd`. Тесты графа подставляют модель и поиск. Для ручного запроса к настоящему агенту нужен действующий ключ.
+Проверьте ответ 391 и запись `multiply` в `tool_results`. Если модель ответила напрямую, запуск инструмента проверяйте по тестам. Ответ содержит `answer` и массив `tool_results`. Этот снимок принимает только `message`, сохраняемого `thread_id` у этой ручки нет. Каждый запрос начинает граф с нового состояния. Если граф не собран, ручка возвращает 503. Результат `multiply` доступен независимо от корпуса, а поиск нужно проверить отдельным вопросом по документам.

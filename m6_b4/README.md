@@ -16,21 +16,33 @@
 
 Текущая `_send_email` в `app/main.py` пишет событие в лог. Письма через SMTP или внешний API не отправляются. Сохранённое состояние графа и доменная история `/chats` имеют разные назначения и не синхронизируются автоматически.
 
-## Запуск
+## Быстрая проверка без ключа
 
-Команды выполняются из этого каталога. В `.env` задать `LLM__OPENAI_API_KEY`, `LLM__DEFAULT_MODEL=gpt-6-luna`, `RAG_LLM_MODEL=gpt-6-luna`. Заменить `ADMIN_TOKEN` и `INTERNAL_TOKEN` разными случайными значениями через `openssl rand -hex 32`. Для истории в базе задать `CHAT_REPOSITORY=postgres`. Настроить `POSTGRES_PASSWORD` и согласовать с ним `DATABASE_URL` для локальных команд.
+Из каталога блока на Python 3.12+ с `uv` выполните:
 
 ```bash
-cp .env.example .env
-uv sync --locked
-docker compose -f compose.yaml up -d redis postgres qdrant
-docker compose -f compose.yaml build app
-docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
-docker compose -f compose.yaml up -d app
-curl --fail http://localhost:8000/health
+uv run --locked pytest -q tests/test_agent_persistent.py tests/test_agent_resume_contract.py tests/test_agent_stream_contract.py
 ```
 
-Файл `.env` заполнить до запуска контейнеров. Флаг `-f compose.yaml` задаёт базовую конфигурацию без автоматического dev-override. Отдельно запущенный на хосте `uvicorn` занимает тот же порт 8000, поэтому одновременно с контейнером приложения его запускать не нужно.
+Для целого прогона с двумя решениями выполните `uv run --locked python -m scripts.time_travel_demo`. Скрипт использует SQLite в памяти и показывает ноль отправок после отказа и одну после одобрения.
+
+Для полного набора тестов, включая оценки RAG, выполните `uv run --locked --extra eval pytest -q`.
+
+## Запуск HTTP-сервиса
+
+Из каталога блока создайте `.env`: `test -f .env || cp .env.example .env`. Укажите `LLM__OPENAI_API_KEY`. Модель в шаблоне уже задана как `gpt-6-luna` для агента и RAG. Для истории чатов в PostgreSQL выберите `CHAT_REPOSITORY=postgres`. Для ручек администрирования и уведомлений задайте разные случайные `ADMIN_TOKEN` и `INTERNAL_TOKEN` командой `openssl rand -hex 32`.
+
+```bash
+docker compose -f compose.yaml up -d --wait redis postgres qdrant
+docker compose -f compose.yaml build app
+docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
+docker compose -f compose.yaml up -d --wait app
+curl --fail http://localhost:8000/ready
+```
+
+Флаг `--wait` ждёт готовности контейнеров. Базовый `compose.yaml` задаёт адреса Redis, PostgreSQL и Qdrant внутри сети Docker. Если меняете `POSTGRES_PASSWORD`, согласуйте с ним `DATABASE_URL` для команд, которые запускаете вне Compose.
+
+Для перехода между блоками сначала остановите предыдущий стек командой `docker compose -f compose.yaml down` из его каталога. У блоков общие имена контейнеров и порт 8000.
 
 При старте приложение загружает корпус из `RAG_DATA_DIR` в `RAG_COLLECTION`. Это требует Qdrant и ключа для эмбеддингов. Сбой сборки RAG виден в логах, поиск тогда возвращает сообщение о недоступной базе. Доступность арифметического инструмента не подтверждает работу поиска.
 
@@ -65,6 +77,8 @@ uv sync --locked --extra eval
 
 ## Пауза и продолжение
 
+Чтобы проверить восстановление после пересоздания контейнера приложения, задайте `AGENT_CHECKPOINTER=postgres` в `.env` до запуска. После получения паузы выполните `docker compose -f compose.yaml up -d --wait --force-recreate app` и продолжите с тем же `thread_id`.
+
 ```bash
 curl --fail -X POST http://localhost:8000/agent/chat \
   -H 'Content-Type: application/json' \
@@ -84,18 +98,19 @@ curl --fail -X POST http://localhost:8000/agent/resume \
 ## Поток событий
 
 ```bash
-curl -N -X POST http://localhost:8000/agent/stream \
+curl --fail-with-body -N http://localhost:8000/agent/stream \
   -H 'Content-Type: application/json' \
-  -d '{"thread_id":"stream-1","input":{"messages":[{"role":"user","content":"Умножь 17 на 23"}]}}'
+  -d '{"thread_id":"stream-approval-1","input":{"messages":[{"role":"user","content":"Используй send_email: получатель client@example.test, тема Статус, текст Заявка принята."}]}}'
 ```
 
 Контракт этой ручки отличается от `/agent/chat`. Начало передаётся в `input`, продолжение — через `resume` с тем же `thread_id`. SSE содержит `type: "update"` с именами узлов, `type: "token"` с полем `text`, а на паузе — `type: "interrupt"` с `payload`. Финальное `type: "done"` завершает текущий поток также после паузы. Оно не подтверждает окончательное выполнение действия. Клиент обязан сохранить информацию об `interrupt` и запросить решение человека. При обрыве или исключении графа поток может закончиться без `done`.
 
-## Проверки
+Если поток вернул `interrupt`, проверьте черновик. Для одобрения отправьте отдельный запрос:
 
 ```bash
-uv run pytest -q
-uv run python -m scripts.time_travel_demo
+curl --fail-with-body -N http://localhost:8000/agent/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"thread_id":"stream-approval-1","resume":true}'
 ```
 
-Демонстрация истории использует SQLite в памяти и подставную модель. Она выполняется без настоящего вызова модели и без отправки писем. Повтор с реальным внешним действием потребует отдельной защиты от повторного выполнения эффекта после сбоя.
+Для проверки отказа начните новый диалог с другим `thread_id` и продолжите с `resume:false`. Запись `send_email` в логе приложения означает имитацию отправки. Повтор внешнего действия после сбоя потребует защиты от повторного эффекта.
