@@ -9,7 +9,7 @@
 | История и контекст | `app/chat/service.py`, `app/chat/repositories/` | Сообщения в Postgres или JSON, последние `CHAT_CONTEXT_WINDOW` сообщений в контексте |
 | Telegram-клиент | `bot/handlers/`, `bot/services/backend_client.py` | Текст и медиа передаются серверу, SSE отображается пользователю |
 | Модерация и лимит | `app/moderation/`, `app/ratelimit/` | Проверки ввода до открытия потока |
-| Администрирование | `app/admin/routes.py` | Статистика, экспорт, пауза, рассылка и оповещения |
+| Администрирование | `app/admin/routes.py` | Статистика, экспорт, передача оператору, рассылка и оповещения |
 | Медиа | `app/chat/media.py` | Изображение, документ, распознавание голоса через `gpt-transcribe` и FFmpeg |
 
 Клиент OpenAI и соединения создаются в `app/main.py` при старте. Репозиторий выбирается явно через `CHAT_REPOSITORY`. Автоматического переключения с Postgres на JSON при сбое базы нет. JSON хранит историю в файлах, но лимиты, оценки и администрирование используют Postgres. Резюмирования старой истории в этом снимке нет, контекст ограничивается окном сообщений.
@@ -26,16 +26,16 @@ uv sync --locked
 В `.env` заполнить `LLM__OPENAI_API_KEY`, установить `CHAT_REPOSITORY=postgres`. Для полного стека нужны `BOT_TOKEN`, `BOT_ADMIN_IDS` и числовой `ADMIN_CHAT_ID`. Пустой `ADMIN_CHAT_ID=` удалить или заменить числом. `ADMIN_TOKEN` и `INTERNAL_TOKEN` заменить разными случайными значениями, каждое можно получить командой `openssl rand -hex 32`. Значения не выводить в общий журнал и не коммитить. Задать пароль `POSTGRES_PASSWORD`; для локальных вызовов базы согласовать с ним `DATABASE_URL`.
 
 ```bash
-docker compose -f compose.yaml up -d redis postgres
+docker compose -f compose.yaml up -d --wait redis postgres
 docker compose -f compose.yaml build app
 docker compose -f compose.yaml run --rm --no-deps app alembic upgrade head
-docker compose -f compose.yaml up -d app
-curl --fail http://localhost:8000/health
-docker compose -f compose.yaml up -d bot
-docker compose -f compose.yaml logs -f app bot
+docker compose -f compose.yaml up -d --wait app
+curl -fsS http://localhost:8000/ready
+docker compose -f compose.yaml up -d --wait bot
+docker compose -f compose.yaml ps
 ```
 
-Последнюю команду запуска бота выполнять после заполнения его настроек. Базовый Compose не публикует Redis и Postgres на хост. Запуск без `-f compose.yaml` автоматически применит `compose.override.yaml`, добавит перезагрузку кода и опубликованный порт Redis. Для локального запуска приложения через `uv run uvicorn app.main:app --reload` нужна отдельно доступная база с миграциями и правильные адреса зависимостей в `.env`.
+Бота запускать после заполнения его настроек. Проверка `/ready` отражает доступность Redis. Готовность Postgres и доступа к Telegram подтвердить созданием чата, диалогом через `/start` и чтением истории. Базовый Compose не публикует Redis и Postgres на хост. Запуск без `-f compose.yaml` автоматически применит `compose.override.yaml`, добавит перезагрузку кода и опубликованный порт Redis. Для локального запуска приложения через `uv run uvicorn app.main:app --reload` нужна отдельно доступная база с миграциями и правильные адреса зависимостей в `.env`.
 
 `LLM__DEFAULT_MODEL=gpt-6-luna` — модель обычного чата. Генерация идёт через Responses API. `app/services/request_options.py` собирает параметры модели, а `app/services/response_stream.py` преобразует события OpenAI в поток сервиса.
 
@@ -73,12 +73,12 @@ data: {"type":"done"}
 
 `POST /chats/admin/broadcast` принимает `text` и либо `owner_ids`, либо `interface`. Рассылка идёт последовательно внутри HTTP-запроса, ответ содержит `sent` и `failed`. Фоновая очередь и устойчивое возобновление рассылки здесь не реализованы. Подтверждение оповещения через `ack` фиксирует обработку записи, но не гарантирует однократную доставку в Telegram.
 
-Бот поддерживает `/start`, `/help`, `/clear`, `/cancel`, `/ask`, `/operator`. `/stats` и `/broadcast` доступны ID из `BOT_ADMIN_IDS`. История, пауза и оценки обрабатываются сервером.
+Бот поддерживает `/start`, `/help`, `/clear`, `/cancel`, `/ask`, `/operator`. `/stats` и `/broadcast` доступны ID из `BOT_ADMIN_IDS`. Сервер ведёт историю, хранит оценки и статус передачи оператору. Проверку статуса перед генерацией и возобновление диалога нужно реализовать отдельно.
 
 ## Проверки
 
 ```bash
-uv run pytest -q
+uv run --locked pytest -q
 ```
 
 HTTP-клиенты подменяются в тестах, реальные сообщения в Telegram не отправляются. Проверка `/ready` показывает доступность Redis, но не подтверждает работоспособность Postgres, миграций или полного диалога. После запуска отдельно выполнить запрос к `/chats` и проверить логи.
