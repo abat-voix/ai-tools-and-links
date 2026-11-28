@@ -37,7 +37,7 @@ docker compose -f compose.yaml logs -f app bot
 
 Последнюю команду запуска бота выполнять после заполнения его настроек. Базовый Compose не публикует Redis и Postgres на хост. Запуск без `-f compose.yaml` автоматически применит `compose.override.yaml`, добавит перезагрузку кода и опубликованный порт Redis. Для локального запуска приложения через `uv run uvicorn app.main:app --reload` нужна отдельно доступная база с миграциями и правильные адреса зависимостей в `.env`.
 
-`LLM__DEFAULT_MODEL=gpt-6-luna` — модель обычного чата. Здесь используется Chat Completions, параметры для Luna формирует `app/services/request_options.py`.
+`LLM__DEFAULT_MODEL=gpt-6-luna` — модель обычного чата. Генерация идёт через Responses API. `app/services/request_options.py` собирает параметры модели, а `app/services/response_stream.py` преобразует события OpenAI в поток сервиса.
 
 ## Сообщение и поток
 

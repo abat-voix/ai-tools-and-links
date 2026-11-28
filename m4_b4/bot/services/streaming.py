@@ -11,9 +11,9 @@ Backend стримит уже dict-события `{"type":"token","delta":"..."
 привязанную к этому message_id. Если backend старый или message_id
 не пришёл — кнопок нет.
 
-sendMessageDraft — private-chat only. Если бот когда-нибудь окажется в группе,
-вызов упадёт; на этот случай оставлен узкий AttributeError-fallback (на
-старых версиях aiogram без метода) — он переключает рендер на edit_text-тротлинг.
+В личном чате используем sendMessageDraft. В других чатах или со старой
+версией aiogram используем edit_text с ограничением частоты. Длинный готовый
+ответ приходит файлом с той же клавиатурой оценки.
 """
 
 import logging
@@ -23,9 +23,9 @@ from time import monotonic
 from uuid import UUID
 
 import telegramify_markdown
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatType, ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
 
 from bot.keyboards.inline import feedback_kb
 
@@ -51,6 +51,21 @@ def _to_tg_markdown(text: str) -> str:
 # (десятки токенов в секунду) без тротлинга мгновенно ловим TelegramRetryAfter.
 # 0.7 сек даёт плавную анимацию и оставляет запас под другие сообщения бота.
 DRAFT_MIN_INTERVAL_SEC = 0.7
+TELEGRAM_TEXT_LIMIT = 4096
+
+
+def _fits_message(text: str) -> bool:
+    return len(text.encode("utf-16-le")) // 2 <= TELEGRAM_TEXT_LIMIT
+
+
+async def _send_answer_file(
+    message: Message, text: str, reply_markup: InlineKeyboardMarkup | None,
+) -> None:
+    await message.bot.send_document(
+        chat_id=message.chat.id,
+        document=BufferedInputFile(text.encode("utf-8"), filename="answer.txt"),
+        reply_markup=reply_markup,
+    )
 
 
 async def stream_to_chat(
@@ -61,6 +76,9 @@ async def stream_to_chat(
     """Стримит через sendMessageDraft с общим draft_id. Финальный send_message
     фиксирует ответ в чате и крепит feedback-кнопки, если backend отдал
     message_id."""
+    if message.chat.type != ChatType.PRIVATE:
+        return await _stream_via_edit_text(message, events, chat_id)
+
     draft_id = uuid.uuid4().int & 0xFFFFFFFF or 1  # ensure non-zero
     buffer = ""
     assistant_message_id: str | None = None
@@ -83,11 +101,11 @@ async def stream_to_chat(
         etype = event.get("type")
         if etype == "token":
             buffer += event.get("delta", "")
-            if not buffer.strip():
-                continue
             now = monotonic()
             if now - last_draft_at < DRAFT_MIN_INTERVAL_SEC:
                 continue   # тротлим — финальный send_message покажет полный текст
+            if not buffer.strip() or not _fits_message(buffer):
+                continue
             try:
                 await message.bot.send_message_draft(
                     chat_id=message.chat.id,
@@ -114,12 +132,18 @@ async def stream_to_chat(
     return buffer
 
 
-async def _send_final(message: Message, text: str, reply_markup) -> None:
+async def _send_final(
+    message: Message, text: str, reply_markup: InlineKeyboardMarkup | None,
+) -> None:
     """Шлёт финальный send_message с Telegram MarkdownV2.
 
     Если MarkdownV2-парсер Telegram'а спотыкается на конкретном тексте
     (бывает на нестандартных конструкциях LLM) — graceful fallback на plain.
     """
+    if not _fits_message(text):
+        await _send_answer_file(message, text, reply_markup)
+        return
+
     md = _to_tg_markdown(text)
     try:
         await message.bot.send_message(
@@ -152,7 +176,7 @@ async def _stream_via_edit_text(
         etype = event.get("type")
         if etype == "token":
             buffer += event.get("delta", "")
-            if monotonic() - last_edit >= 1.0:
+            if monotonic() - last_edit >= 1.0 and _fits_message(buffer):
                 try:
                     await sent.edit_text(buffer)
                     last_edit = monotonic()
@@ -167,6 +191,9 @@ async def _stream_via_edit_text(
         reply_markup = (
             feedback_kb(assistant_message_id) if assistant_message_id else None
         )
+        if not _fits_message(buffer):
+            await _send_answer_file(message, buffer, reply_markup)
+            return buffer
         md = _to_tg_markdown(buffer)
         try:
             await sent.edit_text(

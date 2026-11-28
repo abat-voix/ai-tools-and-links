@@ -1,7 +1,7 @@
-"""Конвертация загруженных медиа в content-part для OpenAI Chat Completions.
+"""Конвертация загруженных медиа в части, которые хранит чат.
 
-Native multimodal: изображения отдаются как `image_url`-part (data: base64
-URI) прямо в основной chat.completions.create — без отдельного Vision-вызова.
+Изображения хранятся в `media_refs.part` как data URL.
+ChatService преобразует их в `input_image` для Responses API.
 Голос идёт через gpt-transcribe; Ogg/Opus нормализуется в WAV через FFmpeg.
 PDF/DOCX — извлечение текста через pypdf / python-docx.
 
@@ -21,13 +21,13 @@ from fastapi import UploadFile
 from openai import AsyncOpenAI
 from pypdf import PdfReader
 
-ContentPart = dict  # тип-алиас под OpenAI Chat Completions content-part
+ContentPart = dict  # формат `media_refs.part` в хранилище чата
 
 
 async def media_to_part(
     media: UploadFile, llm_client: AsyncOpenAI
 ) -> ContentPart:
-    """Конвертирует загруженное медиа в content-part для chat.completions.
+    """Готовит часть для записи в `media_refs.part`.
 
     Поддерживаемые типы:
     - `image/*` → image_url-part с data: base64 URI.
@@ -60,18 +60,15 @@ async def media_to_part(
         }
 
     if mime == "application/pdf":
-        return {
-            "type": "text",
-            "text": f"[документ PDF]:\n{extract_pdf_text(data)[:30_000]}",
-        }
+        label, text = "PDF", extract_pdf_text(data)
+    elif mime.endswith("wordprocessingml.document"):
+        label, text = "DOCX", extract_docx_text(data)
+    else:
+        raise ValueError(f"Unsupported media type: {mime}")
 
-    if mime.endswith("wordprocessingml.document"):
-        return {
-            "type": "text",
-            "text": f"[документ DOCX]:\n{extract_docx_text(data)[:30_000]}",
-        }
-
-    raise ValueError(f"Unsupported media type: {mime}")
+    if not text.strip():
+        raise ValueError(f"Не удалось извлечь текст из {label}")
+    return {"type": "text", "text": f"[документ {label}]:\n{text[:30_000]}"}
 
 
 async def transcribe_audio(
@@ -113,17 +110,14 @@ async def convert_audio_to_wav(audio_bytes: bytes) -> bytes:
 
 
 def extract_pdf_text(data: bytes, max_pages: int = 50) -> str:
-    """Извлекает текст из PDF. Сканы (мало текста на много страниц) — заглушка."""
+    """Извлекает текстовый слой PDF. Распознавание изображений не выполняет."""
     reader = PdfReader(BytesIO(data))
     parts: list[str] = []
     for i, page in enumerate(reader.pages):
         if i >= max_pages:
             break
         parts.append(page.extract_text() or "")
-    text = "\n\n".join(parts).strip()
-    if len(text) < 100 and len(reader.pages) >= 5:
-        return "[это скан, OCR пока не поддерживается]"
-    return text
+    return "\n\n".join(parts).strip()
 
 
 def extract_docx_text(data: bytes) -> str:

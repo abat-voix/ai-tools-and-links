@@ -14,6 +14,7 @@ text/event-stream). Поэтому в route handler вызывается отд�
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -22,10 +23,10 @@ from app.chat.domain import Chat, ChatMessage
 from app.chat.media import media_to_part
 from app.chat.prompt_selection import choose_by_split
 from app.chat.repository import ChatRepository, SystemPromptRepository
-from app.core.exceptions import LLMContentFilterError, LLMError
 from app.moderation.domain import ModerationResult
 from app.moderation.service import ModerationService
-from app.services.request_options import completion_options
+from app.services.request_options import response_options
+from app.services.response_stream import response_text_stream
 
 logger = logging.getLogger("llm-service.chat")
 
@@ -104,21 +105,25 @@ class ChatService:
 
     @staticmethod
     def _message_content_for_llm(m: ChatMessage) -> str | list[dict]:
-        """Возвращает content в формате OpenAI Chat Completions.
-
-        Если у сообщения есть `media_refs.part`, content становится
-        `[text-part, media-part]` (text-part только если content не пустой).
-        Иначе — обычная строка.
-        """
-        media_part = None
-        if m.media_refs and isinstance(m.media_refs, dict):
-            media_part = m.media_refs.get("part")
-        if media_part is None:
+        """Готовит вход Responses, включая вложения из старых записей."""
+        media_part = m.media_refs.get("part") if m.media_refs else None
+        if not media_part:
             return m.content
+
         parts: list[dict] = []
         if m.content:
-            parts.append({"type": "text", "text": m.content})
-        parts.append(media_part)
+            parts.append({"type": "input_text", "text": m.content})
+        if media_part["type"] == "image_url":
+            image = media_part["image_url"]
+            parts.append({
+                "type": "input_image",
+                "image_url": image["url"],
+                "detail": image.get("detail", "auto"),
+            })
+        elif media_part["type"] == "text":
+            parts.append({"type": "input_text", "text": media_part["text"]})
+        else:
+            parts.append(media_part)
         return parts
 
     def _build_context(
@@ -168,8 +173,7 @@ class ChatService:
           успешного сохранения assistant-сообщения. Нужно клиенту, чтобы
           навесить feedback-кнопки с реальным id ответа.
 
-        Финальный `{"type":"done"}` добавляется в route handler, чтобы оба
-        источника (упавший стрим vs нормальный) одинаково завершались.
+        Route handler отправляет `done` при успехе или `error` при сбое.
 
         Шаги:
         1. Если media передан — собрать content-part через media_to_part и
@@ -178,7 +182,7 @@ class ChatService:
            логов/UI), media_refs={"mime","size","filename","part"} если media.
         3. Загрузить чат, выбрать system_prompt по A/B (если есть кандидаты).
         4. Загрузить историю и построить messages для LLM.
-        5. chat.completions.create с stream=True.
+        5. responses.create с stream=True.
         6. yield token-кадров, накапливать buffer.
         7. Сохранить assistant-сообщение с prompt_id; yield message_saved.
         """
@@ -223,55 +227,39 @@ class ChatService:
         messages = self._build_context(chat, history, prompt_body)
 
         # 6. Стримим
-        buffer = ""
-        finish_reason = None
-        stream = await self.llm_client.chat.completions.create(
+        buffer: list[str] = []
+        received_chars = 0
+        stream = await self.llm_client.responses.create(
             model=self.default_model,
-            messages=messages,
+            input=messages,
             stream=True,
-            stream_options={"include_usage": True},
-            **completion_options(self.default_model),
+            store=False,
+            **response_options(self.default_model),
         )
-
         try:
-            async for chunk in stream:
-                if not getattr(chunk, "choices", None):
-                    continue
-                choice = chunk.choices[0]
-                reason = getattr(choice, "finish_reason", None)
-                if isinstance(reason, str):
-                    finish_reason = reason
-                if finish_reason == "content_filter":
-                    raise LLMContentFilterError("Ответ заблокирован поставщиком модели")
-                delta = choice.delta
-                content = getattr(delta, "content", None)
-                if content:
-                    buffer += content
-                    yield {"type": "token", "delta": content}
+            async with aclosing(response_text_stream(stream)) as deltas:
+                async for delta in deltas:
+                    if delta.content:
+                        buffer.append(delta.content)
+                        received_chars += len(delta.content)
+                        yield {"type": "token", "delta": delta.content}
         except Exception as exc:
             logger.warning(
                 "stream interrupted chat_id=%s err=%s received_chars=%d",
                 chat_id,
                 exc,
-                len(buffer),
+                received_chars,
             )
             raise
 
-        if finish_reason != "stop" or not buffer.strip():
-            raise LLMError("Модель не вернула завершённый текстовый ответ")
-
         # 7. Успешное завершение — сохраняем накопленный ответ
-        if buffer:
-            saved = await self.repository.append_message(
-                chat_id,
-                ChatMessage(
-                    chat_id=chat_id,
-                    role="assistant",
-                    content=buffer,
-                    prompt_id=prompt_id,
-                ),
-            )
-            yield {
-                "type": "message_saved",
-                "message_id": str(saved.id),
-            }
+        saved = await self.repository.append_message(
+            chat_id,
+            ChatMessage(
+                chat_id=chat_id,
+                role="assistant",
+                content="".join(buffer),
+                prompt_id=prompt_id,
+            ),
+        )
+        yield {"type": "message_saved", "message_id": str(saved.id)}

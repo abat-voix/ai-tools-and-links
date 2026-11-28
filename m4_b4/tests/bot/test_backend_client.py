@@ -5,12 +5,15 @@
 """
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
 import pytest
 
 from bot.services.backend_client import BackendClient
+from bot.services.error_handling import handle_backend_error
 
 
 @pytest.mark.asyncio
@@ -24,6 +27,28 @@ async def test_failed_or_unterminated_stream_is_not_success(tail):
         client = BackendClient(http)
         with pytest.raises(RuntimeError, match="stream"):
             [event async for event in client.send_message(uuid4(), "hello")]
+
+
+@pytest.mark.parametrize(("status", "code", "expected"), [
+    (403, "moderation_blocked", "Переформулируйте запрос."),
+    (429, "rate_limit", "Слишком много запросов. Подождите 12 сек."),
+])
+async def test_http_rejection_before_stream_can_be_shown_to_user(status, code, expected):
+    class ErrorBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield json.dumps({"detail": {"code": code}}).encode()
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(
+        status, stream=ErrorBody(), headers={"Retry-After": "12"},
+    ))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        client = BackendClient(http)
+        with pytest.raises(httpx.HTTPStatusError) as rejection:
+            [event async for event in client.send_message(uuid4(), "hello")]
+
+    message = SimpleNamespace(answer=AsyncMock())
+    await handle_backend_error(message, rejection.value)
+    message.answer.assert_awaited_once_with(expected)
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,9 @@ from openai import AsyncOpenAI
 from docx import Document as DocxDocument
 from pypdf import PdfWriter
 
-from app.chat.media import extract_docx_text, extract_pdf_text, media_to_part
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+from app.chat.media import extract_docx_text, media_to_part
 
 
 @pytest.fixture
@@ -103,7 +105,16 @@ async def test_application_ogg_treated_as_audio(ogg_audio):
 @pytest.mark.asyncio
 async def test_pdf_to_part(tmp_path):
     writer = PdfWriter()
-    writer.add_blank_page(width=72, height=72)
+    page = writer.add_blank_page(width=72, height=72)
+    font = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+    })
+    page["/Resources"][NameObject("/Font")] = DictionaryObject({NameObject("/F1"): font})
+    content = DecodedStreamObject()
+    content.set_data(b"BT /F1 12 Tf 8 36 Td (Sample PDF text) Tj ET")
+    page.replace_contents(content)
     pdf_path = tmp_path / "test.pdf"
     with open(pdf_path, "wb") as fp:
         writer.write(fp)
@@ -113,7 +124,7 @@ async def test_pdf_to_part(tmp_path):
     llm = MagicMock()
     part = await media_to_part(f, llm)
     assert part["type"] == "text"
-    assert "документ PDF" in part["text"]
+    assert part["text"] == "[документ PDF]:\nSample PDF text"
 
 
 @pytest.mark.asyncio
@@ -146,15 +157,26 @@ async def test_unknown_mime_raises():
         await media_to_part(f, llm)
 
 
-def test_extract_pdf_text_handles_scan_placeholder():
-    """Создадим PDF с 5 пустыми страницами — функция должна вернуть placeholder."""
+async def test_pdf_without_text_is_rejected():
     writer = PdfWriter()
     for _ in range(5):
         writer.add_blank_page(width=72, height=72)
     buf = BytesIO()
     writer.write(buf)
-    text = extract_pdf_text(buf.getvalue())
-    assert "скан" in text or "OCR" in text
+    file = FakeUploadFile("application/pdf", buf.getvalue(), "empty.pdf")
+    with pytest.raises(ValueError, match="Не удалось извлечь текст из PDF"):
+        await media_to_part(file, MagicMock())
+
+
+async def test_docx_without_text_is_rejected():
+    buf = BytesIO()
+    DocxDocument().save(buf)
+    file = FakeUploadFile(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        buf.getvalue(), "empty.docx",
+    )
+    with pytest.raises(ValueError, match="Не удалось извлечь текст из DOCX"):
+        await media_to_part(file, MagicMock())
 
 
 def test_extract_docx_text_with_table(tmp_path):

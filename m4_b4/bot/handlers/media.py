@@ -2,7 +2,7 @@
 
 Бот скачивает файл через Telegram Bot API в bytes и отправляет его как
 multipart-часть в backend через `BackendClient.send_message`. Бэкенд сам
-конвертирует медиа в content-part для chat.completions (см. app/chat/media.py).
+подготавливает медиа для входа Responses API (см. app/chat/media.py).
 """
 
 import asyncio

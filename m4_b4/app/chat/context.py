@@ -19,7 +19,7 @@ def count_tokens(
 ) -> int:
     """Оцениваем число токенов через o200k_base.
 
-    Поправки ChatML приблизительные; фактический расход берётся из API usage.
+    Поправки на служебные поля приблизительные; фактический расход берётся из API usage.
     """
     enc = _encoder()
     total = 0
@@ -27,7 +27,7 @@ def count_tokens(
         content = m["content"] if isinstance(m, dict) else m.content
         role = m.get("role", "") if isinstance(m, dict) else m.role
         total += len(enc.encode(content)) + len(enc.encode(role))
-        total += 4  # ChatML overhead на сообщение
+        total += 4  # приблизительный служебный расход
     return total + 2
 
 
