@@ -63,7 +63,7 @@ def reply_body(output: list[dict] | None = None, *, status: str = "completed") -
         "id": "resp_mock",
         "object": "response",
         "created_at": 1,
-        "model": "gpt-6.1-terra",
+        "model": "gpt-6.2-sol",
         "status": status,
         "output": output if output is not None else [{
             "id": "msg_mock",

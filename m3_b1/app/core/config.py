@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     openai_api_key: SecretStr
-    openai_model: str = "gpt-6.1-terra"
+    openai_model: str = "gpt-6.2-sol"
     demo_token_a: SecretStr
     demo_token_b: SecretStr
     redis_url: str = ""

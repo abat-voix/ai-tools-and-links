@@ -1,8 +1,9 @@
 FROM python:3.12-slim AS build
 WORKDIR /build
-COPY pyproject.toml .
-COPY app ./app
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir .
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=0
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /bin/
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project
 
 FROM python:3.12-slim
 WORKDIR /srv
