@@ -37,9 +37,9 @@
 
 ~~~bash
 uv sync --locked
-cp .env.example .env
-docker compose up -d qdrant
-QDRANT_URL=http://localhost:6333 uv run uvicorn app.main:app --reload --port 8000
+test -f .env || cp .env.example .env
+docker compose up -d --wait qdrant
+QDRANT_URL=http://localhost:6333 uv run --locked uvicorn app.main:app --reload --port 8000
 ~~~
 
 При построении индекса выполняются платные запросы эмбеддингов. Генерация использует Responses API и модель из `RAG_LLM_MODEL`. По умолчанию это `gpt-6.2-sol`.

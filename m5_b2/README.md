@@ -25,10 +25,10 @@
 Нужны Python 3.12, uv, Docker и ключ OpenAI. Команды выполняются из этого каталога. При первом запуске создать .env по .env.example и заполнить LLM__OPENAI_API_KEY. Существующий .env сохранить.
 
 ~~~bash
-uv sync
-cp .env.example .env
-docker compose up -d qdrant
-QDRANT_URL=http://localhost:6333 uv run python scripts/load_to_qdrant.py
+uv sync --locked
+test -f .env || cp .env.example .env
+docker compose up -d --wait qdrant
+QDRANT_URL=http://localhost:6333 uv run --locked python scripts/load_to_qdrant.py
 ~~~
 
 Векторизация корпуса обращается к OpenAI. EMBEDDING_MODEL и EMBEDDING_DIM должны соответствовать друг другу. Скрипт сверяет размерность полученных векторов до записи. Коллекция с другой размерностью требует отдельного имени или явной миграции.
@@ -38,7 +38,7 @@ QDRANT_URL=http://localhost:6333 uv run python scripts/load_to_qdrant.py
 ## Сравнение COSINE и DOT
 
 ~~~bash
-QDRANT_URL=http://localhost:6333 uv run python scripts/compare_metrics.py
+QDRANT_URL=http://localhost:6333 uv run --locked python scripts/compare_metrics.py
 ~~~
 
 Скрипт получает настоящие эмбеддинги через API, создаёт коллекции с суффиксами _cosine и _dot и пишет docs/metric_comparison.json. Для нормализованных векторов обе метрики должны давать одинаковый порядок с учётом равных оценок. Имена этих коллекций зарезервировать для эксперимента: скрипт пересоздаёт их.
@@ -57,7 +57,7 @@ QDRANT_TEST_URL включает сетевые тесты хранилища. Q
 Для локального запуска серверной части:
 
 ~~~bash
-QDRANT_URL=http://localhost:6333 uv run uvicorn app.main:app --reload --port 8000
+QDRANT_URL=http://localhost:6333 uv run --locked uvicorn app.main:app --reload --port 8000
 ~~~
 
 Для полного compose заполнить в .env ключ модели, BOT_TOKEN, BOT_ADMIN_IDS, ADMIN_TOKEN, INTERNAL_TOKEN и ADMIN_CHAT_ID. Токены администратора и внутренних вызовов должны быть собственными случайными значениями.

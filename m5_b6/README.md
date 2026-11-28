@@ -79,6 +79,27 @@ docker compose up -d redis qdrant phoenix
 PHOENIX_ENABLED=true uv run --locked --extra tracing uvicorn app.main:app --reload
 ```
 
+Если образ Phoenix недоступен, запустите Phoenix 16.3.0 на компьютере из
+закреплённых зависимостей. Redis и Qdrant можно оставить в Compose.
+
+```bash
+docker compose up -d --wait redis qdrant
+uv sync --locked --extra tracing
+PHOENIX_HOST=127.0.0.1 uv run --locked --extra tracing phoenix serve
+```
+
+Во втором терминале запустите FastAPI с полным адресом приёма OTLP HTTP:
+
+```bash
+curl -fsS http://127.0.0.1:6006/healthz
+PHOENIX_ENABLED=true \
+  PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006/v1/traces \
+  uv run --locked --extra tracing uvicorn app.main:app --port 8000
+```
+
+Сделайте один запрос к `/rag/query` с фактом из учебного корпуса. На
+`http://127.0.0.1:6006` откройте трассу и проверьте операции поиска и генерации.
+
 **Полный стек в Docker.** Укажите `CHAT_REPOSITORY=postgres`,
 `BOT_TOKEN`, `BOT_ADMIN_IDS`, `ADMIN_CHAT_ID`, а также свои значения
 `ADMIN_TOKEN` и `INTERNAL_TOKEN` в `.env`.

@@ -78,11 +78,11 @@ Python 3.12+ `uv` поставит сам.
 
 ```bash
 # 1) Векторное хранилище
-docker compose up -d qdrant          # панель: http://localhost:6333/dashboard
+docker compose up -d --wait qdrant          # панель: http://localhost:6333/dashboard
 
 # 2) Зависимости и конфиг
 uv sync --locked
-cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
+test -f .env || cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
 
 # 3) Запустить серверную часть (корпус проиндексируется при старте, если пуст)
 uv run --locked uvicorn app.main:app --reload --port 8000
@@ -164,7 +164,7 @@ uv run --locked pytest -q
 ## Полный стек (серверная часть + бот + Redis + Postgres)
 
 ```bash
-cp .env.example .env
+test -f .env || cp .env.example .env
 # заполнить: LLM__OPENAI_API_KEY, BOT_TOKEN, BOT_ADMIN_IDS,
 # ADMIN_TOKEN и INTERNAL_TOKEN (openssl rand -hex 32), ADMIN_CHAT_ID
 docker compose up -d --build
