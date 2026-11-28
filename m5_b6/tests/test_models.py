@@ -3,9 +3,8 @@ async def test_list_models(client):
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) >= 2
     ids = {m["id"] for m in data}
-    assert "gpt-4o-mini" in ids
+    assert ids == {"gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra"}
     for m in data:
         assert m["provider"] in {"openai", "ollama", "anthropic"}
         assert m["input_per_1m"] >= 0

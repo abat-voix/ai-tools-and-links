@@ -6,6 +6,7 @@ from typing import Any
 import tiktoken
 
 from app.chat.domain import ChatMessage
+from app.core.config import DEFAULT_OPENAI_MODEL
 
 
 @lru_cache(maxsize=1)
@@ -15,9 +16,9 @@ def _encoder() -> tiktoken.Encoding:
 
 def count_tokens(
     messages: list[dict[str, Any] | ChatMessage],
-    model: str = "gpt-4o-mini",
+    model: str = DEFAULT_OPENAI_MODEL,
 ) -> int:
-    """Считаем токены через o200k_base (GPT-4o / GPT-5).
+    """Приблизительно считаем токены через o200k_base.
 
     Поправки на ChatML overhead: +4 на каждое сообщение, +2 итого.
     """
@@ -32,7 +33,7 @@ def count_tokens(
 
 
 def fit_to_budget(
-    messages: list[ChatMessage], budget: int, model: str = "gpt-4o-mini"
+    messages: list[ChatMessage], budget: int, model: str = DEFAULT_OPENAI_MODEL
 ) -> list[ChatMessage]:
     """Режет messages с начала под бюджет, сохраняя ВСЕ system-сообщения.
 

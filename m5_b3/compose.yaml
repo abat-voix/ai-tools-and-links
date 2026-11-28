@@ -19,6 +19,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-chat}@postgres:5432/chat
       BOT_URL: http://bot:9000
       QDRANT_URL: http://qdrant:6333
+      # Трейсинг включается флагом; эндпоинт указывает на сервис phoenix в сети compose.
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006/v1/traces
     depends_on:
       redis:
         condition: service_healthy
@@ -106,7 +108,19 @@ services:
       retries: 5
       start_period: 10s
 
+  # Трейсинг RAG: UI + OTLP-приёмник на :6006. Спаны прилетают, только когда в
+  # app выставлен PHOENIX_ENABLED=true (по умолчанию трейсинг выключен).
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: llm-phoenix
+    restart: unless-stopped
+    ports:
+      - "6006:6006"
+    volumes:
+      - phoenix_data:/mnt/data
+
 volumes:
   redis_data:
   pg_data:
   qdrant_storage:
+  phoenix_data:

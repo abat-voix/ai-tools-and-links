@@ -6,23 +6,20 @@ from app.deps.providers import get_cache, get_llm
 from app.main import app
 
 
-def _make_openai_response(content: str = "мок-ответ", model: str = "gpt-4o-mini"):
+def _make_openai_response(content: str = "мок-ответ", model: str = "gpt-6.2-sol"):
     return MagicMock(
-        choices=[
-            MagicMock(
-                message=MagicMock(content=content),
-                finish_reason="stop",
-            )
-        ],
+        status="completed",
+        output_text=content,
+        incomplete_details=None,
         model=model,
-        usage=MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        usage=MagicMock(input_tokens=10, output_tokens=5, total_tokens=15),
     )
 
 
 @pytest.fixture
 def mock_llm():
     llm = AsyncMock()
-    llm.chat.completions.create = AsyncMock(return_value=_make_openai_response())
+    llm.responses.create = AsyncMock(return_value=_make_openai_response())
     return llm
 
 

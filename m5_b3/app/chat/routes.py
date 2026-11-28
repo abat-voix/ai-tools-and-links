@@ -15,10 +15,12 @@ SSE-контракт `POST /chats/{chat_id}/messages` (стабильный — 
 
 `message_saved` — кадр после сохранения assistant-сообщения в БД, нужен
 боту чтобы прицепить feedback-клавиатуру к финальному send_message.
-`done` всегда последний (и при ошибке — в finally).
+`done` завершает успешный стрим. При сбое приходит терминальное
+событие `{"type":"error","code":"generation_failed"}`.
 """
 
 import json
+import logging
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -41,6 +43,8 @@ from app.chat.domain import Chat, ChatMessage
 from app.core.config import get_settings
 from app.deps.providers import SessionFactoryDep
 from app.ratelimit.dependencies import enforce_rate_limit
+
+logger = logging.getLogger(__name__)
 
 # Wire-значения feedback. Те же строки на стороне бота (см.
 # bot/keyboards/inline.py::FEEDBACK_UP/FEEDBACK_DOWN). Общего модуля у
@@ -145,7 +149,10 @@ async def post_message(
                 # {"type":"token","delta":"..."} и
                 # {"type":"message_saved","message_id":"..."}.
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        finally:
+        except Exception:
+            logger.exception("chat stream failed chat_id=%s", chat_id)
+            yield 'data: {"type":"error","code":"generation_failed"}\n\n'
+        else:
             yield 'data: {"type":"done"}\n\n'
 
     return StreamingResponse(

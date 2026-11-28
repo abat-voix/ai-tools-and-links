@@ -57,6 +57,12 @@ tests/
 `LLM__OPENAI_API_KEY`. Для оценки дополнительно настройте судью,
 например задайте `ANTHROPIC_API_KEY` для конфигурации по умолчанию.
 
+Чат и RAG вызывают OpenAI Responses API. Модель по умолчанию — `gpt-6.2-sol`.
+Доступные учебные модели в `/models` — Luna, Sol и Astra. Для генерации
+тестового набора и оценки используются `EVAL_JUDGE_PROVIDER` и
+`EVAL_JUDGE_MODEL`. При выборе OpenAI задайте, например, `gpt-6.2-sol`.
+В обоих вариантах векторы создаёт OpenAI Embeddings API.
+
 **Серверная часть на компьютере** с Redis и Qdrant в Docker.
 В `.env` оставьте `CHAT_REPOSITORY=json` либо подключите свой PostgreSQL.
 

@@ -1,4 +1,4 @@
-# RAG на LlamaIndex
+# RAG на LlamaIndex (Б5.3)
 
 Минимальный RAG поверх дипломного сервиса: корпус из 10 документов индексируется
 в Qdrant через LlamaIndex, ответ строится строго по найденному контексту с
@@ -28,7 +28,7 @@ pip install llama-index-readers-file          # парсеры PDF / DOCX / HTML
 | `qdrant-client` | 1.15.1 |
 | `openai` | 2.37.0 |
 
-Модели: эмбеддинги `text-embedding-3-small` (dim 1536), LLM `gpt-5.4-mini`,
+Модели: эмбеддинги `text-embedding-3-small` (dim 1536), LLM `gpt-6.2-sol`,
 `temperature=0`. Всё настраивается в `app/core/config.py` / `.env`, не хардкодом.
 
 > Метапакет `llama-index` 0.14 включает только `core`, `embeddings-openai`,
@@ -37,7 +37,7 @@ pip install llama-index-readers-file          # парсеры PDF / DOCX / HTML
 
 ## Решение по коллекции
 
-Коллекция из предыдущего блока (`documents`) **не переиспользуется**. Причины:
+Коллекция из Б5.2 (`documents`) **не переиспользуется**. Причины:
 
 1. Это другой корпус (120 чанков FAQ против 10 документов этого блока) —
    сравнивать ответы на разных данных нельзя.

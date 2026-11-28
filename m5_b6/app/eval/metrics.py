@@ -2,8 +2,8 @@
 
 RAGAS 0.4 — collections-API: каждая метрика это объект с корутиной `ascore(...)`
 (аргументы только именованные, у разных метрик разный набор полей), результат —
-`MetricResult` со `.value`. Судья создаётся через `llm_factory`, эмбеддинги для
-`AnswerRelevancy` — через `ragas.embeddings.OpenAIEmbeddings`. Кастомная
+`MetricResult` со `.value`. Судья OpenAI использует Responses API через Instructor.
+Эмбеддинги для `AnswerRelevancy` получает `ragas.embeddings.OpenAIEmbeddings`. Кастомная
 категориальная метрика — декоратором `@discrete_metric` (в 0.4 `AspectCritic` убран).
 
 Модуль импортирует ragas на верхнем уровне — тяжёлая группа `eval`
@@ -13,11 +13,13 @@ RAGAS 0.4 — collections-API: каждая метрика это объект �
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import instructor
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 from ragas.embeddings import OpenAIEmbeddings
 from ragas.llms import llm_factory
+from ragas.llms.base import InstructorLLM
 from ragas.metrics import discrete_metric
 from ragas.metrics.collections import (
     AnswerRelevancy,
@@ -28,6 +30,7 @@ from ragas.metrics.collections import (
 )
 
 from app.core.config import Settings
+from app.services.request_options import response_options
 
 
 @dataclass
@@ -39,6 +42,25 @@ class RagasMetrics:
     context_precision: ContextPrecision
     context_recall: ContextRecall
     factual_correctness: FactualCorrectness
+
+
+class _OpenAIResponseJudge(InstructorLLM):
+    """Передаёт токены и параметры генерации в формате Responses API."""
+
+    def _map_provider_params(self) -> dict[str, Any]:
+        if self.model.startswith("gpt-6"):
+            options = response_options(
+                self.model, self.model_args.get("max_tokens", 4096),
+                self.model_args.get("temperature", 0),
+            )
+        else:
+            options = super()._map_provider_params()
+            if "max_completion_tokens" in options:
+                options["max_output_tokens"] = options.pop("max_completion_tokens")
+                options.pop("temperature", None)
+            elif "max_tokens" in options:
+                options["max_output_tokens"] = options.pop("max_tokens")
+        return {**options, "store": False}
 
 
 def build_judge(settings: Settings) -> tuple[Any, OpenAIEmbeddings]:
@@ -58,8 +80,9 @@ def build_judge(settings: Settings) -> tuple[Any, OpenAIEmbeddings]:
             client=AsyncAnthropic(api_key=api_key),
         )
     else:
-        judge = llm_factory(
-            settings.eval_judge_model, provider="openai", client=openai_client
+        judge = _OpenAIResponseJudge(
+            model=settings.eval_judge_model, provider="openai", max_tokens=4096,
+            client=instructor.from_openai(openai_client, mode=instructor.Mode.RESPONSES_TOOLS),
         )
     return judge, embeddings
 

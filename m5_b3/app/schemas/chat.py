@@ -2,6 +2,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.config import DEFAULT_OPENAI_MODEL
+
 Role = Literal["system", "user", "assistant", "tool"]
 
 
@@ -19,8 +21,8 @@ class Usage(BaseModel):
     @classmethod
     def from_openai(cls, u) -> "Usage":
         return cls(
-            prompt_tokens=getattr(u, "prompt_tokens", 0),
-            completion_tokens=getattr(u, "completion_tokens", 0),
+            prompt_tokens=getattr(u, "input_tokens", 0),
+            completion_tokens=getattr(u, "output_tokens", 0),
             total_tokens=getattr(u, "total_tokens", 0),
         )
 
@@ -34,7 +36,7 @@ class ChatRequest(BaseModel):
                         {"role": "system", "content": "Ты полезный ассистент."},
                         {"role": "user", "content": "Напиши hello world на Python"},
                     ],
-                    "model": "gpt-4o-mini",
+                    "model": DEFAULT_OPENAI_MODEL,
                     "temperature": 0.2,
                 }
             ]
@@ -42,7 +44,7 @@ class ChatRequest(BaseModel):
     )
 
     messages: Annotated[list[Message], Field(min_length=1, max_length=50)]
-    model: str = "gpt-4o-mini"
+    model: str = DEFAULT_OPENAI_MODEL
     temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.7
     max_tokens: Annotated[int, Field(ge=1, le=16_000)] = 1024
     stream: bool = False
@@ -65,12 +67,16 @@ class ChatResponse(BaseModel):
 
     @classmethod
     def from_openai(cls, raw) -> "ChatResponse":
-        choice = raw.choices[0]
+        reason = "stop" if raw.status == "completed" else None
+        if raw.incomplete_details:
+            reason = raw.incomplete_details.reason
+            if reason == "max_output_tokens":
+                reason = "length"
         return cls(
-            content=choice.message.content or "",
+            content=raw.output_text,
             model=raw.model,
             usage=Usage.from_openai(raw.usage),
-            finish_reason=choice.finish_reason,
+            finish_reason=reason,
         )
 
 
@@ -81,7 +87,7 @@ class ChatDelta(BaseModel):
 
 class OpenAIParams(BaseModel):
     provider: Literal["openai"]
-    model: str = "gpt-4o-mini"
+    model: str = DEFAULT_OPENAI_MODEL
     seed: int | None = None
 
 

@@ -17,6 +17,7 @@ from app.deps.providers import get_cache, get_llm
 from app.main import app
 from app.moderation.domain import ModerationResult
 from app.moderation.service import ModerationService
+from tests.response_fixtures import MockTextStream
 
 
 pytestmark = pytest.mark.asyncio
@@ -38,7 +39,7 @@ async def blocking_client(tmp_path):
         repository=repo,
         llm_client=llm,
         context_window=10,
-        default_model="gpt-4o-mini",
+        default_model="gpt-6.2-sol",
         moderation=moderation,
         prompt_repo=None,
     )
@@ -90,15 +91,7 @@ async def test_moderation_passes_through_normal_text(tmp_path):
 
     llm = AsyncMock()
 
-    async def fake_create(**kwargs):
-        async def gen():
-            yield MagicMock(
-                choices=[MagicMock(delta=MagicMock(content="ok"))], usage=None
-            )
-
-        return gen()
-
-    llm.chat.completions.create = AsyncMock(side_effect=fake_create)
+    llm.responses.create = AsyncMock(return_value=MockTextStream("ok"))
 
     moderation = MagicMock(spec=ModerationService)
     moderation.check_input = AsyncMock(
@@ -109,7 +102,7 @@ async def test_moderation_passes_through_normal_text(tmp_path):
         repository=repo,
         llm_client=llm,
         context_window=10,
-        default_model="gpt-4o-mini",
+        default_model="gpt-6.2-sol",
         moderation=moderation,
         prompt_repo=None,
     )

@@ -6,11 +6,14 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_OPENAI_MODEL = "gpt-6.2-sol"
+
+
 class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LLM_")
 
     openai_api_key: SecretStr = SecretStr("sk-test-placeholder")
-    default_model: str = "gpt-4o-mini"
+    default_model: str = DEFAULT_OPENAI_MODEL
     request_timeout: float = 30.0
     max_retries: int = 3
 
@@ -65,7 +68,7 @@ class Settings(BaseSettings):
     rag_data_dir: Path = Path("data/rag-block-03")
     rag_collection: str = "rag_block_03"
     rag_collection_bare: str = "rag_block_03_bare"
-    rag_llm_model: str = "gpt-5.4-mini"
+    rag_llm_model: str = DEFAULT_OPENAI_MODEL
     rag_top_k: int = 3
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 64

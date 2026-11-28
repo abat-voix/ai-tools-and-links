@@ -28,8 +28,8 @@ pip install llama-index-readers-file          # парсеры PDF / DOCX / HTML
 | `qdrant-client` | 1.15.1 |
 | `openai` | 2.37.0 |
 
-Модели: эмбеддинги `text-embedding-3-small` (dim 1536), LLM `gpt-5.4-mini`,
-`temperature=0`. Всё настраивается в `app/core/config.py` / `.env`, не хардкодом.
+По умолчанию `text-embedding-3-small` создаёт векторы размерности 1536,
+а `gpt-6.2-sol` генерирует ответ через Responses API. Модели задаются в `.env`.
 
 > Метапакет `llama-index` 0.14 включает только `core`, `embeddings-openai`,
 > `llms-openai` и `nltk`. Ридеры файлов (`readers-file`) и интеграция с Qdrant в

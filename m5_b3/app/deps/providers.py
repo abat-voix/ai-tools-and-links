@@ -45,11 +45,18 @@ def get_rag_service(request: Request) -> Any:
     return request.app.state.rag_service
 
 
+def get_ingestion_service(request: Request) -> Any:
+    """Индексатор корпуса (офлайн-контур), собранный в lifespan. None — если
+    Qdrant был недоступен на старте: ручки /documents отдают 503."""
+    return request.app.state.ingestion_service
+
+
 LLMDep = Annotated[Any, Depends(get_llm)]
 CacheDep = Annotated[Any, Depends(get_cache)]
 SessionFactoryDep = Annotated[Any, Depends(get_session_factory)]
 VectorStoreDep = Annotated[VectorStore | None, Depends(get_vector_store)]
 RAGServiceDep = Annotated[Any, Depends(get_rag_service)]
+IngestionServiceDep = Annotated[Any, Depends(get_ingestion_service)]
 
 
 def get_llm_service(

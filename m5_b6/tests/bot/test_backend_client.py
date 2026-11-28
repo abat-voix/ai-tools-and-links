@@ -5,12 +5,15 @@
 """
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
 import pytest
 
 from bot.services.backend_client import BackendClient
+from bot.services.error_handling import handle_backend_error
 
 
 @pytest.mark.asyncio
@@ -63,6 +66,33 @@ async def test_send_message_parses_sse():
     assert all(isinstance(e, dict) for e in events)
     deltas = [e["delta"] for e in events if e.get("type") == "token"]
     assert "".join(deltas) == "Привет"
+
+
+@pytest.mark.parametrize(("status", "code", "expected"), [
+    (403, "moderation_blocked", "🛑 Запрос нарушает правила сервиса. Попробуйте переформулировать."),
+    (429, "rate_limit", "🚦 Слишком много запросов. Подождите 12 сек."),
+])
+@pytest.mark.asyncio
+async def test_http_rejection_before_stream_can_be_shown_to_user(status, code, expected):
+    payload = {"detail": {"code": code}}
+
+    class ErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield json.dumps(payload).encode()
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, stream=ErrorStream(), headers={"Retry-After": "12"})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="http://x") as c:
+        client = BackendClient(c)
+        with pytest.raises(httpx.HTTPStatusError) as raised:
+            await anext(client.send_message(uuid4(), "hi"))
+
+    assert raised.value.response.json() == payload
+    message = SimpleNamespace(answer=AsyncMock())
+    await handle_backend_error(message, raised.value)
+    message.answer.assert_awaited_once_with(expected)
 
 
 @pytest.mark.asyncio

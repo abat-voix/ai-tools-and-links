@@ -31,12 +31,13 @@ from llama_index.core.vector_stores import (
     MetadataFilters,
 )
 from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai import OpenAIResponses
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings as AppSettings
 from app.core.config import get_settings
+from app.services.request_options import response_options
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,28 @@ def _contexts_from_nodes(nodes: list[NodeWithScore]) -> list[str]:
     return [sn.get_content() for sn in nodes]
 
 
+def build_rag_llm(
+    settings: AppSettings, *, model: str | None = None, max_output_tokens: int | None = None
+) -> OpenAIResponses:
+    model = model or settings.rag_llm_model
+    reasoning = response_options(model).get("reasoning")
+    options = {}
+    if reasoning is not None:
+        # Задаём контекст GPT-6 явно и выключаем параметры sampling в адаптере.
+        options = {
+            "context_window": 1_050_000,
+            "reasoning_options": reasoning,
+            "additional_kwargs": {"reasoning": reasoning},
+        }
+    return OpenAIResponses(
+        model=model,
+        api_key=settings.llm.openai_api_key.get_secret_value(),
+        store=False,
+        max_output_tokens=max_output_tokens,
+        **options,
+    )
+
+
 class RAGService:
     """Один экземпляр на процесс: ретривер и движок собираются один раз на старте."""
 
@@ -123,7 +146,7 @@ class RAGService:
             else None
         )
 
-        Settings.llm = OpenAI(model=settings.rag_llm_model, temperature=0.0, api_key=api_key)
+        Settings.llm = build_rag_llm(settings)
         Settings.embed_model = OpenAIEmbedding(model=settings.embedding_model, api_key=api_key)
         Settings.node_parser = SentenceSplitter(
             chunk_size=settings.rag_chunk_size,

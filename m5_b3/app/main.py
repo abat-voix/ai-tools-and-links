@@ -22,7 +22,8 @@ from app.core.exceptions import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
-from app.routers import chat, health, models, rag
+from app.observability import setup_tracing
+from app.routers import chat, documents, health, models, rag
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger("llm-service")
@@ -32,6 +33,10 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    # Phoenix-трейсинг (опциональный): инструментируем LlamaIndex до сборки
+    # RAG-индекса, чтобы спаны покрывали и индексацию, и запросы.
+    app.state.tracing_enabled = setup_tracing(settings)
 
     app.state.llm = AsyncOpenAI(
         api_key=settings.llm.openai_api_key.get_secret_value(),
@@ -87,18 +92,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Qdrant недоступен (%s) — vector-роуты вернут 503", e)
 
-    # RAG (LlamaIndex) — опционален: строим индекс один раз на старте.
+    # Индексация + RAG (LlamaIndex) — опциональны: собираем один раз на старте.
     # Импорт ленивый: llama_index тяжёлый, не нужен тестам без lifespan.
+    app.state.ingestion_service = None
     app.state.rag_service = None
     try:
+        from app.services.ingestion import IngestionService
         from app.services.rag import RAGService
+
+        ingestion = IngestionService(settings)
+        app.state.ingestion_service = ingestion
+        # Первичная индексация корпуса только если коллекция пуста — на рестартах
+        # UPSERTS по сохранённому docstore всё равно пропустит неизменённое.
+        if ingestion.is_collection_empty():
+            await asyncio.to_thread(ingestion.ingest_all)
 
         rag_service = RAGService(settings)
         await asyncio.to_thread(rag_service.build)
         app.state.rag_service = rag_service
         logger.info("RAG-сервис готов (коллекция %s)", settings.rag_collection)
     except Exception as e:
-        logger.warning("RAG-сервис не инициализирован (%s) — /rag/query вернёт 503", e)
+        logger.warning("RAG/индексация не инициализированы (%s) — /rag/query и /documents вернут 503", e)
 
     yield
 
@@ -126,6 +140,11 @@ async def lifespan(app: FastAPI):
             await app.state.rag_service.close()
         except Exception:
             logger.exception("ошибка при закрытии RAG-сервиса")
+    if app.state.ingestion_service is not None:
+        try:
+            app.state.ingestion_service.close()
+        except Exception:
+            logger.exception("ошибка при закрытии индексатора")
 
 
 app = FastAPI(
@@ -215,3 +234,4 @@ app.include_router(admin_router)
 app.include_router(models.router)
 app.include_router(health.router)
 app.include_router(rag.router)
+app.include_router(documents.router)

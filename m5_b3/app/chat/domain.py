@@ -23,6 +23,8 @@ class ChatMessage(BaseModel):
     role: Role
     content: str
     media_refs: dict | None = None
+    # Цитаты RAG-ответа (для ответа ассистента): те же sources, что ушли в RAGAnswer.
+    sources: list[dict] | None = None
     tokens: int | None = None
     prompt_id: UUID | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

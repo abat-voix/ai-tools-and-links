@@ -1,6 +1,6 @@
 """Тесты ChatService — стратегия sliding window и подсчёт токенов."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -8,6 +8,7 @@ import pytest
 from app.chat.context import count_tokens, fit_to_budget
 from app.chat.domain import ChatMessage
 from app.chat.service import ChatService
+from tests.response_fixtures import MockTextStream
 
 
 pytestmark = pytest.mark.asyncio
@@ -18,20 +19,13 @@ def _make_streaming_llm(captured: dict):
     llm = AsyncMock()
 
     async def fake_create(**kwargs):
-        captured["messages"] = kwargs.get("messages")
+        captured["messages"] = kwargs.get("input")
         captured["model"] = kwargs.get("model")
         captured["stream"] = kwargs.get("stream")
 
-        async def gen():
-            for piece in ["ok", "!"]:
-                yield MagicMock(
-                    choices=[MagicMock(delta=MagicMock(content=piece))],
-                    usage=None,
-                )
+        return MockTextStream("ok", "!")
 
-        return gen()
-
-    llm.chat.completions.create = AsyncMock(side_effect=fake_create)
+    llm.responses.create = AsyncMock(side_effect=fake_create)
     return llm
 
 
@@ -42,7 +36,7 @@ async def test_sliding_window_limits_history(json_repo):
         repository=json_repo,
         llm_client=llm,
         context_window=5,
-        default_model="gpt-4o-mini",
+        default_model="gpt-6.2-sol",
     )
 
     chat = await service.create_chat(
@@ -87,7 +81,7 @@ async def test_send_message_saves_assistant_after_stream(json_repo):
         repository=json_repo,
         llm_client=llm,
         context_window=10,
-        default_model="gpt-4o-mini",
+        default_model="gpt-6.2-sol",
     )
     chat = await service.create_chat("u", "cli")
 
@@ -147,7 +141,7 @@ async def test_clear_history_calls_soft_delete(json_repo):
         repository=json_repo,
         llm_client=AsyncMock(),
         context_window=10,
-        default_model="gpt-4o-mini",
+        default_model="gpt-6.2-sol",
     )
     chat = await service.create_chat("u", "cli")
     await json_repo.append_message(

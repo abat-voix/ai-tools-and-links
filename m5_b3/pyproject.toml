@@ -28,6 +28,27 @@ dependencies = [
     "llama-index-readers-file>=0.6.0",
 ]
 
+[project.optional-dependencies]
+# Трейсинг LlamaIndex в Phoenix — runtime-путь, по умолчанию выключен
+# (PHOENIX_ENABLED=false). Ставится отдельно: `uv sync --extra tracing` или
+# `pip install '.[tracing]'`. Без него сервис работает, просто без спанов.
+tracing = [
+    "openinference-instrumentation-llama-index>=3,<4",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp>=1.20",
+]
+# Офлайн-оценка качества RAG (scripts/run_eval.py, generate_testset.py) — тяжёлая
+# группа, в проде не нужна. Ставится: `uv sync --extra eval`. langchain-community
+# тянется ядром RAGAS; без верхней границы свежие 0.4.x ломают импорт vertexai.
+eval = [
+    "ragas>=0.4,<0.5",
+    "langchain-community<0.4",
+    "anthropic>=0.40",
+    "llama-index-llms-anthropic>=0.3",
+    "pandas>=2",
+    "arize-phoenix>=5",
+]
+
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0",

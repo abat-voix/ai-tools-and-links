@@ -39,7 +39,7 @@ async def test_image_to_part_returns_base64_data_uri():
 
 
 @pytest.mark.asyncio
-async def test_audio_to_part_calls_whisper():
+async def test_audio_to_part_calls_transcription_model():
     data = b"OggS\x00\x02fake-ogg-bytes"
     f = FakeUploadFile("audio/ogg", data, "voice.ogg")
 
@@ -53,6 +53,9 @@ async def test_audio_to_part_calls_whisper():
     assert "пользователь сказал голосом" in part["text"]
     assert "Привет, как дела" in part["text"]
     llm.audio.transcriptions.create.assert_awaited_once()
+    params = llm.audio.transcriptions.create.await_args.kwargs
+    assert params["model"] == "gpt-transcribe"
+    assert params["file"].name == "voice.ogg"
 
 
 @pytest.mark.asyncio

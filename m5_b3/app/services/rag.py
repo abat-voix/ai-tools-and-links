@@ -1,10 +1,20 @@
-"""RAG на LlamaIndex: индексация корпуса в Qdrant и ответ с цитатами.
+"""RAG на LlamaIndex: широкий retrieval, опциональный реранкинг, ответ с цитатами.
+
+Онлайн-контур построен по принципу «retrieve → guard → synthesize»:
+
+1. Ретривер достаёт `rag_retrieve_top_k` кандидатов из Qdrant.
+2. Опциональный реранкер (config-флаг, тяжёлая зависимость) пересортировывает
+   и оставляет `rag_rerank_top_n`; без него — обрезка dense-топа до того же N.
+3. Код-гард: если лучших score ниже порога — отдаём честный отказ, не дёргая
+   LLM (быстрее и дешевле галлюцинации).
+4. Иначе синтез ответа по пронумерованному контексту с цитатами [1], [2].
 
 Запуск отдельно:
     uv run python -m app.services.rag
 """
 
 import logging
+import re
 
 from llama_index.core import (
     PromptTemplate,
@@ -14,55 +24,115 @@ from llama_index.core import (
     VectorStoreIndex,
 )
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import NodeWithScore
+from llama_index.core.vector_stores import (
+    FilterOperator,
+    MetadataFilter,
+    MetadataFilters,
+)
 from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai import OpenAIResponses
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from app.core.config import Settings as AppSettings
 from app.core.config import get_settings
+from app.services.request_options import response_options
 
 logger = logging.getLogger(__name__)
 
-QA_PROMPT = PromptTemplate(
-    "Ниже приведён контекст из базы знаний.\n"
+REFUSAL_TEXT = "В базе знаний я не нашёл ответа на этот вопрос."
+
+CITATION_QA_PROMPT = PromptTemplate(
+    "Ниже — пронумерованные источники из базы знаний.\n"
     "---------------------\n{context_str}\n---------------------\n"
-    "Ответь на вопрос, опираясь ТОЛЬКО на контекст. Если ответа в контексте нет — "
-    "честно напиши, что не нашёл ответа в базе знаний, и ничего не выдумывай. "
-    "Отвечай по-русски, коротко и по делу.\n"
+    "Ответь на вопрос, опираясь ТОЛЬКО на источники. Каждый факт сопровождай "
+    "номером источника в квадратных скобках, например [1] или [2]. Если ответа "
+    "в источниках нет — честно напиши, что не нашёл его в базе знаний, и ничего "
+    "не выдумывай. Отвечай по-русски, коротко и по делу.\n"
     "Вопрос: {query_str}\n"
     "Ответ: "
 )
 
 
-def format_result(response, threshold: float) -> dict:
-    """Приводит ответ LlamaIndex к контракту {answer, top_score, sources}.
-
-    Если top-1 score ниже порога — считаем, что ответа в корпусе нет, и отдаём
-    честный fallback вместо сгенерированного текста.
-    """
-    nodes = response.source_nodes
-    top_score = max((node.score or 0.0 for node in nodes), default=0.0)
-    if top_score < threshold:
-        answer_text = "В базе знаний нет ответа на этот вопрос."
-    else:
-        answer_text = str(response)
-    return {
-        "answer": answer_text,
-        "top_score": round(top_score, 3),
-        "sources": [
+def build_sources(source_nodes: list[NodeWithScore]) -> list[dict]:
+    """Нумерованные цитаты [1..N]: id, file_name, page, score, snippet."""
+    sources = []
+    for i, sn in enumerate(source_nodes, start=1):
+        meta = sn.metadata or {}
+        sources.append(
             {
-                "text": node.text[:300],
-                "source": node.metadata.get("file_name"),
-                "score": round(node.score or 0.0, 3),
+                "id": i,
+                "file_name": meta.get("file_name") or meta.get("source") or "unknown",
+                "page": meta.get("page"),
+                "score": round(sn.score or 0.0, 3),
+                "snippet": sn.get_content()[:200].strip(),
             }
-            for node in nodes
-        ],
-    }
+        )
+    return sources
+
+
+def parse_citations(text: str, sources: list[dict]) -> str:
+    """Разворачивает [1] в [1 — file.pdf], чтобы источник был виден в тексте."""
+    by_id = {s["id"]: s for s in sources}
+
+    def replace(match: re.Match) -> str:
+        source = by_id.get(int(match.group(1)))
+        return f"[{match.group(1)} — {source['file_name']}]" if source else match.group(0)
+
+    return re.sub(r"\[(\d+)\]", replace, text)
+
+
+def build_filters(
+    *, visibility: str | None = "internal", departments: list[str] | None = None
+) -> MetadataFilters | None:
+    """Фильтр доступа до поиска: документы вне видимости даже не достаются.
+
+    Применяется на уровне векторного хранилища, а не после ретрива — иначе
+    кусок недоступного документа может попасть в контекст LLM.
+    """
+    filters = []
+    if visibility:
+        filters.append(
+            MetadataFilter(key="visibility", value=visibility, operator=FilterOperator.EQ)
+        )
+    if departments:
+        filters.append(
+            MetadataFilter(key="department", value=departments, operator=FilterOperator.IN)
+        )
+    return MetadataFilters(filters=filters) if filters else None
+
+
+def _numbered_context(nodes: list[NodeWithScore]) -> str:
+    return "\n\n".join(f"[{i}] {sn.get_content()}" for i, sn in enumerate(nodes, start=1))
+
+
+def _contexts_from_nodes(nodes: list[NodeWithScore]) -> list[str]:
+    """Полные тексты найденных чанков — вход retrieved_contexts для RAGAS."""
+    return [sn.get_content() for sn in nodes]
+
+
+def build_rag_llm(settings: AppSettings) -> OpenAIResponses:
+    model = settings.rag_llm_model
+    reasoning = response_options(model).get("reasoning")
+    options = {}
+    if reasoning is not None:
+        # Задаём контекст GPT-6 явно и выключаем параметры sampling в адаптере.
+        options = {
+            "context_window": 1_050_000,
+            "reasoning_options": reasoning,
+            "additional_kwargs": {"reasoning": reasoning},
+        }
+    return OpenAIResponses(
+        model=model,
+        api_key=settings.llm.openai_api_key.get_secret_value(),
+        store=False,
+        **options,
+    )
 
 
 class RAGService:
-    """Один экземпляр на процесс: индекс строится один раз на старте."""
+    """Один экземпляр на процесс: ретривер и движок собираются один раз на старте."""
 
     def __init__(self, settings: AppSettings) -> None:
         self._settings = settings
@@ -73,7 +143,7 @@ class RAGService:
             else None
         )
 
-        Settings.llm = OpenAI(model=settings.rag_llm_model, temperature=0.0, api_key=api_key)
+        Settings.llm = build_rag_llm(settings)
         Settings.embed_model = OpenAIEmbedding(model=settings.embedding_model, api_key=api_key)
         Settings.node_parser = SentenceSplitter(
             chunk_size=settings.rag_chunk_size,
@@ -83,27 +153,38 @@ class RAGService:
         self._client = QdrantClient(url=settings.qdrant_url, api_key=qdrant_key)
         self._aclient = AsyncQdrantClient(url=settings.qdrant_url, api_key=qdrant_key)
         self._index: VectorStoreIndex | None = None
-        self._engine = None
+        self._retriever = None
+        self._postprocessors: list = []
 
     def _vector_store(self) -> QdrantVectorStore:
-        return QdrantVectorStore(
-            collection_name=self._settings.rag_collection,
-            client=self._client,
-            aclient=self._aclient,
-        )
+        kwargs: dict = {
+            "collection_name": self._settings.rag_collection,
+            "client": self._client,
+            "aclient": self._aclient,
+        }
+        if self._settings.rag_use_hybrid:
+            kwargs["enable_hybrid"] = True
+            kwargs["fastembed_sparse_model"] = self._settings.rag_sparse_model
+        return QdrantVectorStore(**kwargs)
 
     def _collection_ready(self) -> bool:
-        """Коллекция существует и непуста — значит индексировать заново не нужно."""
+        """Коллекция существует и непуста — индексировать заново не нужно."""
         if not self._client.collection_exists(self._settings.rag_collection):
             return False
         return self._client.count(self._settings.rag_collection).count > 0
 
-    def build(self) -> None:
-        """Подключается к готовой коллекции либо индексирует корпус из файлов.
+    def _build_reranker(self):
+        """Реранкер — опциональная тяжёлая зависимость (sentence-transformers + torch).
+        Импорт и загрузка модели только когда rag_use_reranker=True."""
+        from llama_index.core.postprocessor import SentenceTransformerRerank
 
-        Идемпотентно: повторный запуск не дублирует точки, потому что при
-        непустой коллекции идём по ветке from_vector_store без переиндексации.
-        """
+        return SentenceTransformerRerank(
+            model=self._settings.rag_reranker_model,
+            top_n=self._settings.rag_rerank_top_n,
+        )
+
+    def build(self) -> None:
+        """Подключается к готовой коллекции либо индексирует корпус из файлов."""
         vector_store = self._vector_store()
         if self._collection_ready():
             self._index = VectorStoreIndex.from_vector_store(vector_store)
@@ -125,16 +206,69 @@ class RAGService:
                 self._settings.rag_collection,
             )
 
-        self._engine = self._index.as_query_engine(
-            similarity_top_k=self._settings.rag_top_k,
-            text_qa_template=QA_PROMPT,
+        filters = (
+            build_filters(visibility="internal")
+            if self._settings.rag_restrict_to_internal
+            else None
         )
+        retriever_kwargs: dict = {"similarity_top_k": self._settings.rag_retrieve_top_k}
+        if filters is not None:
+            retriever_kwargs["filters"] = filters
+        if self._settings.rag_use_hybrid:
+            retriever_kwargs["vector_store_query_mode"] = "hybrid"
+            retriever_kwargs["sparse_top_k"] = self._settings.rag_retrieve_top_k
+        self._retriever = self._index.as_retriever(**retriever_kwargs)
+
+        if self._settings.rag_use_reranker:
+            self._postprocessors = [self._build_reranker()]
+
+    async def _retrieve(self, question: str) -> list[NodeWithScore]:
+        nodes = await self._retriever.aretrieve(question)
+        for postprocessor in self._postprocessors:
+            nodes = postprocessor.postprocess_nodes(nodes, query_str=question)
+        return nodes[: self._settings.rag_rerank_top_n]
 
     async def answer(self, question: str) -> dict:
-        if self._engine is None:
+        """Контракт: {answer, top_score, sources[id,file_name,page,score,snippet], confident}."""
+        nodes = await self._retrieve_checked(question)
+        return await self._synthesize(question, nodes)
+
+    async def evaluate_inputs(self, question: str) -> dict:
+        """answer() + полные retrieved_contexts (тексты чанков) — вход для RAGAS.
+
+        Роут /rag/query отдаёт усечённые snippet'ы, а метрикам нужен полный текст
+        найденных чанков; этот метод собирает оба представления за один ретрив.
+        """
+        nodes = await self._retrieve_checked(question)
+        result = await self._synthesize(question, nodes)
+        result["retrieved_contexts"] = _contexts_from_nodes(nodes)
+        return result
+
+    async def _retrieve_checked(self, question: str) -> list[NodeWithScore]:
+        if self._retriever is None:
             raise RuntimeError("RAG-индекс не инициализирован: сначала вызвать build().")
-        response = await self._engine.aquery(question)
-        return format_result(response, self._settings.rag_score_threshold)
+        return await self._retrieve(question)
+
+    async def _synthesize(self, question: str, nodes: list[NodeWithScore]) -> dict:
+        top_score = max((sn.score or 0.0 for sn in nodes), default=0.0)
+        if not nodes or top_score < self._settings.rag_score_threshold:
+            return {
+                "answer": REFUSAL_TEXT,
+                "top_score": round(top_score, 3),
+                "sources": [],
+                "confident": False,
+            }
+
+        response = await Settings.llm.acomplete(
+            CITATION_QA_PROMPT.format(context_str=_numbered_context(nodes), query_str=question)
+        )
+        sources = build_sources(nodes)
+        return {
+            "answer": parse_citations(str(response), sources),
+            "top_score": round(top_score, 3),
+            "sources": sources,
+            "confident": True,
+        }
 
     async def close(self) -> None:
         try:

@@ -1,8 +1,8 @@
-"""Конвертация загруженных медиа в content-part для OpenAI Chat Completions.
+"""Конвертация загруженных медиа в части, которые хранит чат.
 
-Native multimodal: изображения отдаются как `image_url`-part (data: base64
-URI) прямо в основной chat.completions.create — без отдельного Vision-вызова.
-Голос идёт через Whisper-1 (без FFmpeg, Whisper принимает ogg/m4a/mp3
+Изображения хранятся в `media_refs.part` как data URL.
+ChatService преобразует их в `input_image` для Responses API.
+Голос идёт через gpt-transcribe (без FFmpeg, API принимает ogg/m4a/mp3
 напрямую). PDF/DOCX — извлечение текста через pypdf / python-docx.
 
 Замечание: для image-part `part["image_url"]["url"]` содержит полный base64
@@ -19,17 +19,17 @@ from fastapi import UploadFile
 from openai import AsyncOpenAI
 from pypdf import PdfReader
 
-ContentPart = dict  # тип-алиас под OpenAI Chat Completions content-part
+ContentPart = dict  # формат `media_refs.part` в хранилище чата
 
 
 async def media_to_part(
     media: UploadFile, llm_client: AsyncOpenAI
 ) -> ContentPart:
-    """Конвертирует загруженное медиа в content-part для chat.completions.
+    """Готовит часть для записи в `media_refs.part`.
 
     Поддерживаемые типы:
     - `image/*` → image_url-part с data: base64 URI.
-    - `audio/*` (а также `application/ogg` — Telegram voice) → Whisper-1
+    - `audio/*` (а также `application/ogg` — Telegram voice) → gpt-transcribe
       транскрипт → text-part с пометкой '[пользователь сказал голосом]:'.
     - `application/pdf` → pypdf → text-part '[документ PDF]:'.
     - `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
@@ -49,7 +49,7 @@ async def media_to_part(
         }
 
     if mime.startswith("audio/") or mime == "application/ogg":
-        transcript = await whisper_transcribe(
+        transcript = await transcribe_audio(
             data, media.filename or "audio.ogg", llm_client,
         )
         return {
@@ -72,14 +72,14 @@ async def media_to_part(
     raise ValueError(f"Unsupported media type: {mime}")
 
 
-async def whisper_transcribe(
+async def transcribe_audio(
     audio_bytes: bytes, filename: str, llm_client: AsyncOpenAI,
 ) -> str:
-    """Whisper-1 принимает ogg/m4a/mp3/wav/flac/webm без конвертации."""
+    """Отправляет файл в Audio Transcriptions с исходным расширением."""
     f = BytesIO(audio_bytes)
     f.name = filename  # OpenAI SDK ориентируется на расширение из .name
     result = await llm_client.audio.transcriptions.create(
-        model="whisper-1", file=f,
+        model="gpt-transcribe", file=f,
     )
     return result.text
 

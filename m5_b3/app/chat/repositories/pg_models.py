@@ -1,7 +1,9 @@
-"""ORM-модели для Postgres-хранения чата.
+"""ORM-модели для Postgres-хранения чата и аналитики RAG.
 
-Лежат рядом с pg_repo.py и не пробрасываются наружу модуля app.chat.
-Граница с доменными моделями — `ChatMessage.model_validate(row, from_attributes=True)`.
+Строки чата (`ChatRow`, `ChatMessageRow`, `SystemPromptRow`) — внутренние для
+модуля app.chat; граница с доменом — `ChatMessage.model_validate(row, ...)`.
+`RagQueryRow` — общая аналитическая строка лога RAG-запросов: её пишет
+RAG-роут и читает `AdminRepository` (refusal_rate, пробелы в знаниях).
 """
 
 from datetime import UTC, datetime
@@ -40,6 +42,9 @@ class ChatMessageRow(Base):
     role: Mapped[str]
     content: Mapped[str]
     media_refs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Цитаты RAG-ответа, показанные пользователю: по ним отрицательная оценка
+    # указывает, что чинить (плохие источники → поиск, хорошие но плохой ответ → генерация).
+    sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     tokens: Mapped[int | None]
     prompt_id: Mapped[UUID | None]
     created_at: Mapped[datetime] = mapped_column(
@@ -47,6 +52,20 @@ class ChatMessageRow(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         TimestampTZ, nullable=True
+    )
+
+
+class RagQueryRow(Base):
+    """Лог RAG-запросов для аналитики: refusal_rate и пробелы в знаниях."""
+
+    __tablename__ = "rag_queries"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    question_normalized: Mapped[str]
+    confident: Mapped[bool]
+    top_score: Mapped[float]
+    created_at: Mapped[datetime] = mapped_column(
+        TimestampTZ, default=lambda: datetime.now(UTC)
     )
 
 

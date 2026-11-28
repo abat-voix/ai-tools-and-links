@@ -1,4 +1,4 @@
-# Vector store — отчёт по ДЗ
+# Vector store — отчёт по ДЗ Б5.2
 
 Шаблон. Заполняется после выполнения скриптов из проекта. Цифры и id —
 из реального прогона на своей предметке (не на учебном корпусе).
@@ -6,7 +6,7 @@
 ## Конфигурация
 
 - **Движок:** Qdrant `qdrant/qdrant:v1.14.0`
-- **Embedding-модель:** `text-embedding-3-small` (dim=1536)
+- **Embedding-модель:** `text-embedding-3-small` (dim=1536), выбор из ДЗ Б5.1
 - **Метрика:** cosine
 - **Коллекция:** `documents`
 - **HNSW:** `m=16`, `ef_construct=100` — defaults Qdrant (см. обоснование ниже)

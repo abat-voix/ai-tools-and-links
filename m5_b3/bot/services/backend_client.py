@@ -59,7 +59,8 @@ class BackendClient:
 
         Этот метод yield-ит ровно то, что пришло (без преобразования), пока
         не встретит `done` — он завершает итерацию (не yield-ится).
-        Неизвестные `type` молча игнорируются — для forward compat.
+        `error` или обрыв потока до `done` прерывают чтение с ошибкой.
+        Неизвестные типы событий игнорируются.
         """
         data = {"content": content}
         files = {"media": (filename, media, mime)} if media is not None else None
@@ -76,6 +77,8 @@ class BackendClient:
             headers=headers,
             timeout=120.0,
         ) as r:
+            if not r.is_success:
+                await r.aread()
             r.raise_for_status()
             async for line in r.aiter_lines():
                 if not line.startswith("data: "):
@@ -84,8 +87,11 @@ class BackendClient:
                 ptype = payload.get("type")
                 if ptype == "done":
                     return
+                if ptype == "error":
+                    raise RuntimeError("backend stream failed")
                 if ptype in ("token", "message_saved"):
                     yield payload
+            raise RuntimeError("backend stream ended without done")
 
     async def clear_messages(
         self,

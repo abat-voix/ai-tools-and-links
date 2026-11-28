@@ -31,11 +31,11 @@ from llama_index.core.vector_stores import (  # noqa: E402
     MetadataFilters,
 )
 from llama_index.embeddings.openai import OpenAIEmbedding  # noqa: E402
-from llama_index.llms.openai import OpenAI  # noqa: E402
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # noqa: E402
 from qdrant_client import QdrantClient  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
+from app.services.rag import build_rag_llm  # noqa: E402
 
 settings = get_settings()
 KEY = settings.llm.openai_api_key.get_secret_value()
@@ -44,7 +44,7 @@ DATA = str(settings.rag_data_dir)
 
 def _setup_models() -> None:
     Settings.embed_model = OpenAIEmbedding(model=settings.embedding_model, api_key=KEY)
-    Settings.llm = OpenAI(model=settings.rag_llm_model, temperature=0.0, api_key=KEY)
+    Settings.llm = build_rag_llm(settings)
     Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=64)
 
 

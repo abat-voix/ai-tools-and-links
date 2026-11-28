@@ -104,6 +104,24 @@ async def test_list_messages_returns_history(chat_client):
     assert roles == ["user", "assistant"]
 
 
+async def test_failed_stream_ends_with_error(chat_client, mock_llm_stream):
+    client, _ = chat_client
+    mock_llm_stream.responses.create.side_effect = RuntimeError("provider failed")
+    created = await client.post(
+        "/chats", json={"owner_external_id": "stream-failure", "interface": "cli"}
+    )
+    chat_id = created.json()["chat_id"]
+    response = await client.post(
+        f"/chats/{chat_id}/messages", data={"content": "Привет"}
+    )
+    events = [
+        json.loads(line[6:]) for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert response.status_code == 200
+    assert events == [{"type": "error", "code": "generation_failed"}]
+
+
 async def test_post_message_accepts_media_multipart(chat_client):
     """Multipart с media-файлом — backend должен принять и стримить ответ."""
     client, _ = chat_client

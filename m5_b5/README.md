@@ -81,11 +81,11 @@ Python 3.12+ `uv` поставит сам.
 docker compose up -d qdrant          # панель: http://localhost:6333/dashboard
 
 # 2) Зависимости и конфиг
-uv sync
+uv sync --locked
 cp .env.example .env                  # вписать LLM__OPENAI_API_KEY
 
 # 3) Запустить серверную часть (корпус проиндексируется при старте, если пуст)
-uv run uvicorn app.main:app --reload --port 8000
+uv run --locked uvicorn app.main:app --reload --port 8000
 # Swagger: http://localhost:8000/docs
 ```
 
@@ -93,13 +93,20 @@ uv run uvicorn app.main:app --reload --port 8000
 индексирует корпус один раз. На рестартах `UPSERTS` по сохранённому docstore
 пропускает неизменённое.
 
+## Генерация и поиск
+
+Чат и RAG вызывают OpenAI Responses API. По умолчанию в обеих ролях работает
+`gpt-6.2-sol`. Модель чата задаётся в `LLM__DEFAULT_MODEL`, модель ответа по
+документам — в `RAG_LLM_MODEL`. В `GET /models` доступны Luna, Sol и Astra.
+Для индекса и поиска используется `EMBEDDING_MODEL` через Embeddings API.
+
 ## Проверить RAG
 
 ```bash
 curl -s -X POST http://localhost:8000/rag/query \
   -H "Content-Type: application/json" \
   -d '{"question":"За сколько дней можно вернуть деньги за подписку?"}'
-# → {"answer":"...14 дней [1].","top_score":0.57,"confident":true,
+# → {"answer":"...14 дней [1 — billing_refunds.md].","top_score":0.57,"confident":true,
 #    "sources":[{"id":1,"file_name":"billing_refunds.md","score":0.57,"snippet":"..."}, ...]}
 ```
 
@@ -118,9 +125,10 @@ curl -s -X POST http://localhost:8000/documents/reindex \
 # → {"status":"queued","detail":"режим incremental, индексация в фоне"}
 ```
 
-Поддерживаемые форматы: `.pdf`, `.docx`, `.md`, `.txt`, `.html`. Через 30–60 секунд
-новый документ появляется в индексе и доступен в ответах `POST /rag/query`. Упавший
-при индексации файл изолируется в `.failed` и виден в логах.
+Поддерживаемые форматы: `.pdf`, `.docx`, `.md`, `.txt`, `.html`. Ответ `202`
+подтверждает принятие файла. Дождитесь записи об успешной индексации в журнале
+и проверьте новый документ через `POST /rag/query`. Сбой разбора или индексации
+также виден в журнале, файл переносится в `.failed`.
 
 ## Аналитика RAG-запросов
 
@@ -138,13 +146,13 @@ curl -s -H "X-Admin-Token: $TOKEN" http://localhost:8000/chats/admin/stats
 ## Проверить конвейер индексации против живого Qdrant
 
 ```bash
-QDRANT_TEST_URL=http://localhost:6333 uv run python scripts/verify_rag.py
+uv run --locked python scripts/verify_rag.py
 ```
 
 ## Тесты
 
 ```bash
-uv run pytest -q
+uv run --locked pytest -q
 ```
 
 Тесты идут без сети и без `OPENAI_API_KEY` (через `httpx.ASGITransport`): ручки
